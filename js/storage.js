@@ -5,7 +5,7 @@
   const KEY = 'vasilisa-world-v1';
   const S = (VW.Store = {});
 
-  const VERSION = 4;
+  const VERSION = 5;
 
   S.defaults = function () {
     return {
@@ -17,6 +17,8 @@
       worlds: {},
       music: true,
       visits: 0,
+      // «Создай свой мир»: местность, клетки [x, y, деталь, вариант], зверушки в домиках, блюда
+      sandbox: { terrain: 'meadow', cells: [], homes: [], carry: [], dishes: {}, seen: false },
     };
   };
 
@@ -127,6 +129,7 @@
         }
       }
     }
+    // v4 → v5: появился режим «Создай свой мир» — пустой мир добавится сам (значения по умолчанию)
     d.v = VERSION;
     return d;
   };

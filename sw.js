@@ -1,6 +1,6 @@
 /* Vasilisa World — офлайн-режим.
    Сначала пробуем сеть (чтобы всегда была свежая версия), без сети — берём из кэша. */
-const CACHE = 'vasilisa-world-v4';
+const CACHE = 'vasilisa-world-v5';
 const ASSETS = [
   './',
   'index.html',
@@ -31,6 +31,8 @@ const ASSETS = [
   'js/screens.js',
   'js/maps.js',
   'js/hall.js',
+  'js/sandbox-art.js',
+  'js/sandbox.js',
   'js/main.js',
 ];
 

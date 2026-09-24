@@ -857,6 +857,15 @@
       G.notebook(ctx, W, H);
       starCounter(ctx);
       roundBtn(ctx, 'back', W - 52, 50, 36, '#8C7BD8', 'back', () => this.back());
+      // «Создай свой мир» — молоточек рядом со стрелкой
+      const hp = UI.btnC('sandbox', W - 138, 50, 38, () => {
+        A.sfx('magic');
+        V.say('Создай свой мир!');
+        VW.go('sandbox');
+      });
+      const hoy = G.roundButton(ctx, W - 138, 50, 36, '#FF9A3C', hp);
+      VW.SandboxIcons.hammer(ctx, W - 136, 50 + hoy, 20);
+      G.sparkle(ctx, W - 112, 22, 6 + 2 * Math.sin(t * 4), '#FFF3A0');
       G.text(ctx, 'Миры', W / 2, 50, 50, '#5B3FB8', { weight: 900, stroke: '#fff', lw: 10 });
 
       D.worlds.forEach((w, i) => {
