@@ -5,7 +5,7 @@
   const KEY = 'vasilisa-world-v1';
   const S = (VW.Store = {});
 
-  const VERSION = 2;
+  const VERSION = 3;
 
   S.defaults = function () {
     return {
@@ -20,8 +20,9 @@
     };
   };
 
+  // Прогресс мира: открыт ли, какой круг, какие сцены круга пройдены, лучшие монетки
   function worldDefaults() {
-    return { done: [], best: {}, finished: false, bonusGiven: false };
+    return { unlocked: false, round: 1, done: [], best: {}, finished: false, bonusGiven: false, rounds: 0 };
   }
 
   function merge(target, src) {
@@ -85,6 +86,17 @@
       if (d.look && typeof d.look === 'object') {
         if (d.look.set && !d.look.hero) d.look.hero = (VW.Data.heroForOldSet || {})[d.look.set] || null;
         delete d.look.set;
+      }
+    }
+    if (v < 3) {
+      // v2 → v3: миры открываются за звёздочку; где уже есть прогресс — мир считаем открытым
+      if (d.worlds && typeof d.worlds === 'object') {
+        for (const id of Object.keys(d.worlds)) {
+          const w = d.worlds[id];
+          if (!w || typeof w !== 'object') continue;
+          if ((Array.isArray(w.done) && w.done.length) || w.finished) w.unlocked = true;
+          if (typeof w.round !== 'number') w.round = 1;
+        }
       }
     }
     d.v = VERSION;

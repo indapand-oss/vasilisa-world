@@ -1,6 +1,6 @@
 /* Vasilisa World — офлайн-режим.
    Сначала пробуем сеть (чтобы всегда была свежая версия), без сети — берём из кэша. */
-const CACHE = 'vasilisa-world-v2';
+const CACHE = 'vasilisa-world-v3';
 const ASSETS = [
   './',
   'index.html',
@@ -17,11 +17,19 @@ const ASSETS = [
   'js/gfx.js',
   'js/hero.js',
   'js/items.js',
+  'js/treasures.js',
   'js/ui.js',
   'js/art.js',
+  'js/styles.js',
+  'js/themes.js',
+  'js/scenery.js',
+  'js/decor.js',
   'js/levels.js',
+  'js/gen.js',
+  'js/worlds.js',
   'js/game.js',
   'js/screens.js',
+  'js/maps.js',
   'js/hall.js',
   'js/main.js',
 ];

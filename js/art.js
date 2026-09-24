@@ -433,6 +433,13 @@
     if (f) f(ctx, p, t);
   };
   Art.styles = ST;
+  // Задняя часть площадки (стена дома, стебель, ножка гриба) — рисуется позади лестниц
+  const BACK = {};
+  Art.backs = BACK;
+  Art.platformBack = function (ctx, p, t) {
+    const f = BACK[p.style];
+    if (f) f(ctx, p, t);
+  };
 
   // ---------- лестницы ----------
   const LAD = {
@@ -442,8 +449,16 @@
     rope: { rail: '#C9A56A', rung: '#8B5A2B', line: '#6A4520' },
   };
 
-  Art.ladder = function (ctx, l) {
-    const c = LAD[l.style || 'wood'];
+  Art.ladderColors = LAD;
+  Art.ladderStyles = {}; // особые лестницы (лиана, леденец, пиксели) — см. styles.js
+
+  Art.ladder = function (ctx, l, t) {
+    const special = Art.ladderStyles[l.style];
+    if (special) {
+      special(ctx, l, t);
+      return;
+    }
+    const c = LAD[l.style || 'wood'] || LAD.wood;
     const top = l.top - 14, bot = l.bottom;
     const x = l.x;
     // перекладины

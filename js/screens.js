@@ -766,11 +766,15 @@
   // =========================================================
   // Меню миров (эскиз 2)
   // =========================================================
+  const Wd = () => VW.Worlds;
+
   VW.screens.worlds = {
     enter() {
       this.t = 0;
       this.shake = {};
       this.fx = new VW.Particles();
+      this.modal = null;
+      this.opened = null;
       A.music('menu');
       setTimeout(() => {
         if (VW.screenName === 'worlds' && !V.speaking) V.say(D.say.worlds);
@@ -783,8 +787,21 @@
         this.shake[k] -= dt;
         if (this.shake[k] <= 0) delete this.shake[k];
       }
+      if (this.modal) this.modal.t += dt;
+      if (this.opened) {
+        this.opened.t += dt;
+        if (this.opened.t > 1.6 && !this.opened.gone) {
+          this.opened.gone = true;
+          VW.go('map', { world: this.opened.id });
+        }
+      }
     },
     onKey(code) {
+      if (this.modal) {
+        if (code === 'Escape') this.closeModal();
+        if (code === 'Enter' || code === 'Space') this.buy();
+        return;
+      }
       if (code === 'Escape') this.back();
       if (code === 'Enter' || code === 'Space') this.open(D.worlds[0]);
     },
@@ -793,15 +810,47 @@
       VW.go('character');
     },
     open(w) {
-      if (w.playable) {
+      if (this.opened) return;
+      if (Wd().isOpen(w.id)) {
         A.sfx('magic');
         V.say(w.say);
         VW.go('map', { world: w.id });
-      } else {
-        A.sfx('locked');
-        this.shake[w.id] = 0.45;
-        V.say(w.say + ' ' + D.say.worldLocked);
+        return;
       }
+      const can = S.data.stars >= w.price;
+      A.sfx('tap');
+      this.modal = { w: w, t: 0, can: can };
+      V.say(w.say + ' ' + (can ? D.say.worldLocked : D.say.worldNeedStar));
+    },
+    closeModal() {
+      this.modal = null;
+      A.sfx('back');
+    },
+    buy() {
+      const m = this.modal;
+      if (!m) return;
+      if (!m.can || !Wd().unlock(m.w.id)) {
+        A.sfx('locked');
+        this.shake[m.w.id] = 0.45;
+        this.modal = null;
+        return;
+      }
+      A.sfx('buy');
+      A.sfx('found');
+      VW.starPulse = 0.6;
+      this.modal = null;
+      this.opened = { id: m.w.id, t: 0 };
+      V.say(D.say.worldOpened + ' ' + m.w.name + '!');
+      const c = this.cardRect(D.worlds.indexOf(m.w), VW.W, VW.H);
+      this.fx.burst('confetti', c.x + c.w / 2, c.y + c.h / 2, 70, { speed: 560, g: 520, life: 1.8 });
+      this.fx.burst('star', c.x + c.w / 2, c.y + c.h / 2, 16, { speed: 320, size: 14, color: '#FFC928', life: 1.2 });
+    },
+    cardRect(i, W, H) {
+      const x0 = 26, x1 = W - 26, y0 = 100, y1 = H - 22;
+      const gx = 16, gy = 14;
+      const cw = (x1 - x0 - gx * 2) / 3, ch = (y1 - y0 - gy * 2) / 3;
+      const col = i % 3, row = Math.floor(i / 3);
+      return { x: x0 + col * (cw + gx), y: y0 + row * (ch + gy), w: cw, h: ch };
     },
     draw(ctx, W, H) {
       const t = this.t;
@@ -810,37 +859,39 @@
       roundBtn(ctx, 'back', W - 52, 50, 36, '#8C7BD8', 'back', () => this.back());
       G.text(ctx, 'Миры', W / 2, 50, 50, '#5B3FB8', { weight: 900, stroke: '#fff', lw: 10 });
 
-      const x0 = 26, x1 = W - 26, y0 = 100, y1 = H - 86;
-      const gx = 16, gy = 14;
-      const cw = (x1 - x0 - gx * 2) / 3, ch = (y1 - y0 - gy * 2) / 3;
-      const prog = S.world('magic');
       D.worlds.forEach((w, i) => {
-        const col = i % 3, row = Math.floor(i / 3);
-        const x = x0 + col * (cw + gx), y = y0 + row * (ch + gy);
+        const { x, y, w: cw, h: ch } = this.cardRect(i, W, H);
+        const open = Wd().isOpen(w.id);
+        const justOpened = this.opened && this.opened.id === w.id;
         const sh = this.shake[w.id] ? Math.sin(this.shake[w.id] * 55) * 7 : 0;
         const pressed = UI.btn('w' + w.id, x, y, cw, ch, () => this.open(w));
         const oy = pressed ? 3 : 0;
-        const bg = w.playable ? U.shade(w.color, 0.72) : U.shade(w.color, 0.82);
-        if (w.playable) G.glow(ctx, x + cw / 2, y + ch / 2, cw * 0.75, '#FFF3A0', 0.35 + 0.15 * Math.sin(t * 3));
-        G.panel(ctx, x + sh, y + oy, cw, ch, { r: 26, fill: bg, stroke: w.color, lw: w.playable ? 5 : 3, shadowY: pressed ? 2 : 6 });
-        const is = Math.min(ch * 0.33, cw * 0.18);
+        const bg = open ? U.shade(w.color, 0.72) : U.shade(w.color, 0.82);
+        if (open) G.glow(ctx, x + cw / 2, y + ch / 2, cw * 0.75, '#FFF3A0', 0.3 + 0.15 * Math.sin(t * 3 + i));
+        if (justOpened) G.glow(ctx, x + cw / 2, y + ch / 2, cw, '#FFF3A0', 0.9);
+        G.panel(ctx, x + sh, y + oy, cw, ch, { r: 26, fill: bg, stroke: w.color, lw: open ? 5 : 3, shadowY: pressed ? 2 : 6 });
+        const is = Math.min(ch * 0.3, cw * 0.18);
         const icx = x + sh + 18 + is * 1.1, icy = y + oy + ch / 2;
         G.circle(ctx, icx, icy, is * 1.25);
         ctx.fillStyle = 'rgba(255,255,255,0.8)';
         ctx.fill();
         I.drawWorldIcon(ctx, w.icon, icx, icy, is, t + i);
         const tx = icx + is * 1.25 + 14;
-        const tw = x + sh + cw - tx - (w.playable ? 52 : 60);
-        const fsz = Math.min(28, ch * 0.2);
+        const tw = x + sh + cw - tx - 56;
+        const fsz = Math.min(28, ch * 0.18);
         const lines = G.wrap(ctx, w.name, fsz, tw, 900);
-        const ly = y + oy + ch / 2 - ((lines.length - 1) * fsz * 1.1) / 2 - (w.playable ? 12 : 0);
+        const ly = y + oy + ch / 2 - ((lines.length - 1) * fsz * 1.1) / 2 - 12;
         lines.forEach((l, k) => G.text(ctx, l, tx, ly + k * fsz * 1.1, fsz, U.shade(w.color, -0.55), { align: 'left', weight: 900, maxW: tw }));
-        if (w.playable) {
-          // прогресс: найденные артефакты
-          const n = D.scenes.length;
+        if (open) {
+          // прогресс круга: звёздочки за пройденные сцены
+          const round = Wd().round(w.id);
+          const scenes = Wd().scenes(w.id, round);
+          const prog = S.world(w.id);
+          const n = scenes.length;
+          const step = Math.min(26, (tw + 20) / n);
           for (let k = 0; k < n; k++) {
-            const done = prog.done.indexOf(D.scenes[k].id) >= 0;
-            const dx = tx + 12 + k * 26, dy = y + oy + ch / 2 + fsz * 0.9 + 4;
+            const done = prog.done.indexOf(scenes[k].id) >= 0;
+            const dx = tx + 12 + k * step, dy = ly + (lines.length - 1) * fsz * 1.1 + fsz * 0.9 + 6;
             if (done) G.starIcon(ctx, dx, dy, 11);
             else {
               G.circle(ctx, dx, dy, 7);
@@ -848,94 +899,133 @@
               ctx.fill();
             }
           }
+          if (round > 1) {
+            const lx = x + sh + cw - 34, lyy = y + oy + ch - 26;
+            G.panel(ctx, lx - 30, lyy - 14, 60, 28, { r: 14, fill: '#fff', stroke: w.color, lw: 2, shadow: false });
+            G.text(ctx, 'Ур.' + round, lx, lyy + 1, 15, U.shade(w.color, -0.5), { weight: 900 });
+          }
           G.circle(ctx, x + sh + cw - 30, y + oy + 30, 20);
           ctx.fillStyle = '#2FBF55';
           ctx.fill();
           G.icon(ctx, 'play', x + sh + cw - 29, y + oy + 30, 11, '#fff', false);
         } else {
           G.rr(ctx, x + sh, y + oy, cw, ch, 26);
-          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.fillStyle = 'rgba(255,255,255,0.3)';
           ctx.fill();
-          G.lockBadge(ctx, x + sh + cw - 28, y + oy + 28, 18);
-          G.text(ctx, 'скоро', x + sh + cw - 28, y + oy + 60, 15, '#6B5B95', { weight: 800 });
+          G.lockBadge(ctx, x + sh + cw - 30, y + oy + 30, 18);
+          G.priceTag(ctx, x + sh + cw - 44, y + oy + ch - 30, w.price, 34, S.data.stars >= w.price);
         }
       });
-
-      // «Миры → 1000» — как на эскизе
-      const by = H - 44;
-      const p = UI.btn('more', W / 2 - 200, by - 30, 400, 60, () => {
-        A.sfx('sparkle');
-        V.say(D.say.moreWorlds);
-        this.fx.burst('star', W / 2 + 120, by, 12, { speed: 240, size: 10, color: '#FFC928' });
-      });
-      const oy = p ? 2 : 0;
-      G.text(ctx, 'Миры', W / 2 - 120, by + oy, 34, '#3B4A6B', { weight: 900 });
-      ctx.beginPath();
-      ctx.moveTo(W / 2 - 60, by + oy + 6);
-      ctx.bezierCurveTo(W / 2 - 20, by + oy + 18, W / 2 + 10, by + oy - 10, W / 2 + 50, by + oy + 2);
-      ctx.lineWidth = 4;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = '#3B4A6B';
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(W / 2 + 40, by + oy - 8);
-      ctx.lineTo(W / 2 + 52, by + oy + 2);
-      ctx.lineTo(W / 2 + 38, by + oy + 10);
-      ctx.stroke();
-      G.text(ctx, '1000', W / 2 + 118, by + oy, 38, '#FF4F9A', { weight: 900, stroke: '#fff', lw: 6 });
-      G.sparkle(ctx, W / 2 + 175, by - 18, 9 + 3 * Math.sin(t * 5), '#FFC928');
       this.fx.draw(ctx);
+      if (this.modal) this.drawModal(ctx, W, H);
+    },
+
+    // «Открыть за ⭐1?»
+    drawModal(ctx, W, H) {
+      const m = this.modal, w = m.w;
+      const k = U.easeOutBack(Math.min(1, m.t / 0.3));
+      UI.blocker(() => this.closeModal());
+      ctx.fillStyle = 'rgba(30,15,70,' + 0.45 * Math.min(1, m.t / 0.2) + ')';
+      ctx.fillRect(0, 0, W, H);
+      const pw = Math.min(620, W - 60), ph = 420;
+      const px = W / 2 - pw / 2, py = H / 2 - ph / 2;
+      ctx.save();
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(k, k);
+      ctx.translate(-W / 2, -H / 2);
+      UI.btn('wModalPanel', px, py, pw, ph, null);
+      G.panel(ctx, px, py, pw, ph, { r: 34, fill: '#FFFDF4', stroke: w.color, lw: 6, shadowY: 10 });
+      // значок мира
+      const ix = px + pw * 0.27, iy = py + ph * 0.43;
+      G.glow(ctx, ix, iy, 150, '#FFF1B0', 0.8);
+      G.circle(ctx, ix, iy, 88);
+      ctx.fillStyle = U.shade(w.color, 0.7);
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = w.color;
+      ctx.stroke();
+      I.drawWorldIcon(ctx, w.icon, ix, iy, 62, this.t);
+      G.lockBadge(ctx, ix + 64, iy - 64, 24);
+      // название и вопрос
+      const rx = px + pw * 0.68;
+      let tfs = 36;
+      while (tfs > 20 && G.measure(ctx, w.name, tfs, 900) > pw * 0.56) tfs--;
+      G.text(ctx, w.name, rx, py + 70, tfs, U.shade(w.color, -0.55), { weight: 900 });
+      if (m.can) {
+        const q1 = 'Открыть за', q2 = '1?';
+        const w1 = G.measure(ctx, q1, 30, 900), w2 = G.measure(ctx, q2, 30, 900);
+        const total = w1 + 12 + 40 + 6 + w2;
+        let qx = rx - total / 2;
+        G.text(ctx, q1, qx, py + 140, 30, '#3B2A6B', { align: 'left', weight: 900 });
+        qx += w1 + 12 + 20;
+        G.starIcon(ctx, qx, py + 138, 20);
+        G.text(ctx, q2, qx + 26, py + 140, 30, '#3B2A6B', { align: 'left', weight: 900 });
+        // «да» — большая зелёная кнопка
+        const p = UI.btn('wBuyYes', rx - 110, py + ph - 150, 220, 90, () => this.buy());
+        const oy = G.button3d(ctx, rx - 110, py + ph - 150, 220, 90, '#2FBF55', p, 32);
+        G.icon(ctx, 'check', rx - 44, py + ph - 105 + oy, 28, '#fff');
+        G.starIcon(ctx, rx + 24, py + ph - 107 + oy, 22);
+        G.text(ctx, '1', rx + 60, py + ph - 104 + oy, 34, '#fff', { weight: 900 });
+      } else {
+        G.text(ctx, 'Нужна 1', rx - 18, py + 140, 30, '#3B2A6B', { weight: 900 });
+        G.starIcon(ctx, rx + 78, py + 138, 20);
+        G.text(ctx, 'Собирай монетки', rx, py + 188, 22, '#6B5B95', { weight: 800 });
+        G.text(ctx, 'в волшебной школе!', rx, py + 218, 22, '#6B5B95', { weight: 800 });
+        const p = UI.btn('wBuyOk', rx - 90, py + ph - 150, 180, 90, () => this.closeModal());
+        const oy = G.button3d(ctx, rx - 90, py + ph - 150, 180, 90, '#FF9A3C', p, 32);
+        G.icon(ctx, 'check', rx, py + ph - 105 + oy, 30, '#fff');
+      }
+      roundBtn(ctx, 'wBuyNo', px + pw - 22, py + 22, 32, '#FF6B6B', 'close', () => this.closeModal(), 0.5);
+      ctx.restore();
     },
   };
 
   // =========================================================
   // Карта сцен мира
   // =========================================================
-  const NODE_POS = [
-    [0.11, 0.74],
-    [0.27, 0.52],
-    [0.43, 0.73],
-    [0.58, 0.5],
-    [0.73, 0.72],
-    [0.88, 0.47],
-  ];
-
   const MAP = (VW.screens.map = {
     enter(p) {
       p = p || {};
       this.t = 0;
       this.fx = new VW.Particles();
       this.intro = null;
-      this.world = 'magic';
+      let world = p.world || VW.lastWorld || 'magic';
+      if (!D.worldById[world] || !Wd().isOpen(world)) world = 'magic';
+      this.world = world;
+      VW.lastWorld = world;
+      this.round = Wd().round(world);
+      this.scenes = Wd().scenes(world, this.round);
+      this.nodes = Wd().mapNodes(world, this.round, this.scenes.length);
+      this.wdef = D.worldById[world];
       A.music('menu');
-      const prog = S.world(this.world);
       const next = this.nextIndex();
       this.heroNode = next;
       this.walk = null;
+      this.popNode = null;
       if (p.justDone != null) {
-        // новый артефакт появляется в кружке, герой идёт к следующей сцене
+        // новая находка появляется в кружке, герой идёт к следующей сцене
         this.heroNode = p.justDone;
         this.popNode = p.justDone;
         this.popT = 0;
-        const target = Math.min(p.justDone + 1, D.scenes.length);
-        this.walk = { from: p.justDone, to: target, t: -0.9, dur: 1.0, openAfter: target < D.scenes.length };
+        const target = Math.min(p.justDone + 1, this.scenes.length);
+        this.walk = { from: p.justDone, to: target, t: -0.9, dur: 1.0, openAfter: target < this.scenes.length };
       } else {
         setTimeout(() => {
-          if (VW.screen === MAP && !this.intro && !V.speaking) V.say(D.say.map);
+          if (VW.screen === MAP && !this.intro && !V.speaking) V.say(this.round > 1 ? this.wdef.name + '. Уровень ' + this.round + '! Куда пойдём?' : D.say.map);
         }, 500);
       }
-      void prog;
     },
     nextIndex() {
       const prog = S.world(this.world);
-      for (let i = 0; i < D.scenes.length; i++) if (prog.done.indexOf(D.scenes[i].id) < 0) return i;
-      return D.scenes.length; // всё пройдено — праздник
+      for (let i = 0; i < this.scenes.length; i++) if (prog.done.indexOf(this.scenes[i].id) < 0) return i;
+      return this.scenes.length; // всё пройдено — праздник
     },
     isOpen(i) {
       const prog = S.world(this.world);
+      const sc = this.scenes;
       if (i === 0) return true;
-      if (i >= D.scenes.length) return D.scenes.every((s) => prog.done.indexOf(s.id) >= 0);
-      return prog.done.indexOf(D.scenes[i - 1].id) >= 0 || prog.done.indexOf(D.scenes[i].id) >= 0;
+      if (i >= sc.length) return sc.every((s) => prog.done.indexOf(s.id) >= 0);
+      return prog.done.indexOf(sc[i - 1].id) >= 0 || prog.done.indexOf(sc[i].id) >= 0;
     },
     update(dt) {
       this.t += dt;
@@ -962,7 +1052,7 @@
         return;
       }
       if (code === 'Escape') this.back();
-      if (code === 'Enter' || code === 'Space') this.tapNode(Math.min(this.nextIndex(), D.scenes.length));
+      if (code === 'Enter' || code === 'Space') this.tapNode(Math.min(this.nextIndex(), this.scenes.length));
     },
     back() {
       A.sfx('back');
@@ -972,12 +1062,12 @@
       if (this.walk) return;
       if (!this.isOpen(i)) {
         A.sfx('locked');
-        V.say(i >= D.scenes.length ? D.say.hallLocked : D.say.sceneLocked);
+        V.say(i >= this.scenes.length ? D.say.hallLocked : D.say.sceneLocked);
         return;
       }
-      if (i >= D.scenes.length) {
+      if (i >= this.scenes.length) {
         A.sfx('magic');
-        VW.go('hall', { world: this.world });
+        VW.go('hall', { world: this.world, round: this.round });
         return;
       }
       this.openIntro(i);
@@ -985,7 +1075,7 @@
     openIntro(i) {
       A.sfx('tap');
       this.intro = { i: i, t: 0 };
-      V.say(D.scenes[i].intro);
+      V.say(this.scenes[i].intro);
     },
     closeIntro() {
       this.intro = null;
@@ -993,21 +1083,23 @@
     },
     play() {
       if (!this.intro) return;
-      const sc = D.scenes[this.intro.i];
       A.sfx('magic');
-      VW.go('game', { scene: sc.id });
+      VW.go('game', { world: this.world, round: this.round, idx: this.intro.i });
     },
     nodePos(i, W, H) {
-      const p = NODE_POS[i];
+      const p = this.nodes[i];
       return [p[0] * W, p[1] * H];
     },
     draw(ctx, W, H) {
       const t = this.t;
-      landscape(ctx, W, H, t, true);
+      VW.Maps.paint(ctx, W, H, t, this.world, this.round);
       const prog = S.world(this.world);
+      const n = this.scenes.length;
+      const pc = VW.Maps.pathColors[this.world] || ['#E9C98F', '#F7E2B5'];
+      const wc = this.wdef.color;
 
       // дорожка
-      const pts = NODE_POS.map((p, i) => this.nodePos(i, W, H));
+      const pts = this.nodes.map((p, i) => this.nodePos(i, W, H));
       ctx.beginPath();
       ctx.moveTo(pts[0][0], pts[0][1]);
       for (let i = 1; i < pts.length; i++) {
@@ -1016,10 +1108,10 @@
       }
       ctx.lineCap = 'round';
       ctx.lineWidth = 30;
-      ctx.strokeStyle = '#E9C98F';
+      ctx.strokeStyle = pc[0];
       ctx.stroke();
       ctx.lineWidth = 20;
-      ctx.strokeStyle = '#F7E2B5';
+      ctx.strokeStyle = pc[1];
       ctx.stroke();
       ctx.setLineDash([2, 22]);
       ctx.lineWidth = 8;
@@ -1029,11 +1121,12 @@
 
       // кружки сцен
       const next = this.nextIndex();
-      for (let i = 0; i <= D.scenes.length; i++) {
+      for (let i = 0; i <= n; i++) {
         const [x, y] = pts[i];
         const open = this.isOpen(i);
-        const isHall = i === D.scenes.length;
-        const done = !isHall && prog.done.indexOf(D.scenes[i].id) >= 0;
+        const isHall = i === n;
+        const sc = this.scenes[i];
+        const done = !isHall && prog.done.indexOf(sc.id) >= 0;
         const r = isHall ? 62 : 52;
         const pressed = UI.btnC('node' + i, x, y, r + 6, () => this.tapNode(i));
         const pulse = i === next && open ? 1 + 0.06 * Math.sin(t * 5) : 1;
@@ -1046,23 +1139,29 @@
         ctx.fillStyle = !open ? '#CFC8DD' : isHall ? '#FFE3F0' : done ? '#FFF4C2' : '#FFFFFF';
         ctx.fill();
         ctx.lineWidth = 6;
-        ctx.strokeStyle = !open ? '#9A92AE' : done || isHall ? '#F2A900' : '#9B7BFF';
+        ctx.strokeStyle = !open ? '#9A92AE' : done || isHall ? '#F2A900' : wc;
         ctx.stroke();
         if (isHall) {
           I.drawCake(ctx, x, y + 4, rr * 0.62, t);
           if (!open) G.lockBadge(ctx, x + rr * 0.7, y - rr * 0.7, 18);
         } else if (done) {
-          let s = rr * 0.6;
+          let s = rr * (sc.arts.length > 1 ? 0.42 : 0.6);
           if (this.popNode === i) s *= U.easeOutElastic(Math.min(1, this.popT / 0.8));
-          I.drawArtifact(ctx, D.scenes[i].artifact, x, y, s, t, { sparkles: true });
+          if (sc.arts.length === 1) I.drawArtifact(ctx, sc.arts[0], x, y, s, t, { sparkles: true });
+          else {
+            sc.arts.forEach((a, k) => {
+              const ang = -Math.PI / 2 + (k / sc.arts.length) * TAU;
+              I.drawArtifact(ctx, a, x + Math.cos(ang) * rr * 0.4, y + Math.sin(ang) * rr * 0.4, s * 0.8, t, { sparkles: false });
+            });
+          }
         } else if (open) {
-          G.icon(ctx, 'question', x, y, rr * 0.55, '#9B7BFF', false);
+          G.icon(ctx, 'question', x, y, rr * 0.55, wc, false);
         } else {
           G.icon(ctx, 'lock', x, y, rr * 0.5, '#8E86A3', false);
         }
         if (!isHall) {
           G.circle(ctx, x - rr * 0.72, y + rr * 0.72, 17);
-          ctx.fillStyle = open ? '#9B7BFF' : '#9A92AE';
+          ctx.fillStyle = open ? wc : '#9A92AE';
           ctx.fill();
           ctx.lineWidth = 3;
           ctx.strokeStyle = '#fff';
@@ -1092,10 +1191,17 @@
       Hero.draw(ctx, hx, hy, look, { state: walking ? 'walk' : 'wave', t: t, phase: t * 12, facing: face }, 0.85);
       if (look.pet) VW.Pets.draw(ctx, look.pet, hx - 38 * face, hy - (VW.Pets.flies(look.pet) ? 60 : 0), { t: t, scale: 0.75, facing: face, moving: walking });
 
-      // заголовок
-      G.panel(ctx, W / 2 - 230, 12, 460, 70, { r: 35, fill: 'rgba(255,255,255,0.9)', stroke: '#9B7BFF', lw: 4, shadowY: 5 });
-      I.drawWorldIcon(ctx, 'wand', W / 2 - 180, 47, 24, t);
-      G.text(ctx, 'Волшебная школа', W / 2 + 20, 48, 34, '#5B3FB8', { weight: 900, maxW: 360 });
+      // заголовок: мир и уровень
+      const title = this.wdef.name;
+      let tfs = 34;
+      while (tfs > 22 && G.measure(ctx, title, tfs, 900) > 330) tfs--;
+      G.panel(ctx, W / 2 - 230, 12, 460, 70, { r: 35, fill: 'rgba(255,255,255,0.92)', stroke: wc, lw: 4, shadowY: 5 });
+      I.drawWorldIcon(ctx, this.wdef.icon, W / 2 - 180, 47, 24, t);
+      G.text(ctx, title, W / 2 + 20, 48, tfs, U.shade(wc, -0.5), { weight: 900, maxW: 330 });
+      // уровень (круг)
+      const lx = W / 2, ly = 100;
+      G.panel(ctx, lx - 78, ly - 16, 156, 34, { r: 17, fill: wc, stroke: '#fff', lw: 3, shadowY: 3 });
+      G.text(ctx, 'Уровень ' + this.round, lx, ly + 1, 20, '#fff', { weight: 900 });
       starCounter(ctx);
       roundBtn(ctx, 'back', W - 52, 50, 36, '#8C7BD8', 'back', () => this.back());
 
@@ -1106,7 +1212,8 @@
     // Карточка задания: что нужно найти
     drawIntro(ctx, W, H) {
       const it = this.intro;
-      const sc = D.scenes[it.i];
+      const sc = this.scenes[it.i];
+      const wc = this.wdef.color;
       const k = U.easeOutBack(Math.min(1, it.t / 0.35));
       UI.blocker(() => this.closeIntro());
       ctx.fillStyle = 'rgba(30,15,70,' + 0.5 * Math.min(1, it.t / 0.2) + ')';
@@ -1121,17 +1228,30 @@
       G.panel(ctx, px, py, pw, ph, { r: 36, fill: '#FFF8E6', stroke: '#F2A900', lw: 6, shadowY: 10 });
       // номер и название
       G.circle(ctx, px + 58, py + 58, 30);
-      ctx.fillStyle = '#9B7BFF';
+      ctx.fillStyle = wc;
       ctx.fill();
       G.text(ctx, String(it.i + 1), px + 58, py + 60, 34, '#fff', { weight: 900 });
-      G.text(ctx, sc.name, px + pw / 2 + 20, py + 60, 40, '#5B3FB8', { weight: 900, maxW: pw - 160 });
-      // что найти
-      const ax = px + pw / 2, ay = py + ph * 0.47;
-      G.glow(ctx, ax, ay, 150, '#FFF1A8', 0.85);
-      G.rays(ctx, ax, ay, 140, this.t * 0.4, '#FFE680', 12, 0.35);
-      I.drawArtifact(ctx, sc.artifact, ax, ay + Math.sin(this.t * 3) * 5, 78, this.t, {});
-      G.text(ctx, sc.artName, ax, ay + 112, 30, '#7A4A00', { weight: 900, stroke: '#fff', lw: 6 });
+      let tfs = 40;
+      while (tfs > 24 && G.measure(ctx, sc.name, tfs, 900) > pw - 170) tfs--;
+      G.text(ctx, sc.name, px + pw / 2 + 20, py + 60, tfs, U.shade(wc, -0.5), { weight: 900, maxW: pw - 160 });
+      // что найти (1–3 находки)
+      const n = sc.arts.length;
+      const ay = py + ph * 0.47;
+      const gap = n === 1 ? 0 : Math.min(200, (pw - 80) / n);
+      sc.arts.forEach((a, j) => {
+        const ax = px + pw / 2 + (j - (n - 1) / 2) * gap;
+        const sz = n === 1 ? 78 : 56;
+        G.glow(ctx, ax, ay, sz * 1.9, '#FFF1A8', 0.85);
+        if (n === 1) G.rays(ctx, ax, ay, 140, this.t * 0.4, '#FFE680', 12, 0.35);
+        I.drawArtifact(ctx, a, ax, ay + Math.sin(this.t * 3 + j) * 5, sz, this.t + j, {});
+        const nm = D.artName(a);
+        let nfs = n === 1 ? 30 : 22;
+        const maxW = n === 1 ? pw - 80 : gap - 10;
+        while (nfs > 14 && G.measure(ctx, nm, nfs, 900) > maxW) nfs--;
+        G.text(ctx, nm, ax, ay + (n === 1 ? 112 : 86), nfs, '#7A4A00', { weight: 900, stroke: '#fff', lw: 6 });
+      });
       // кнопки
+      const ax = px + pw / 2;
       const by = py + ph - 68;
       roundBtn(ctx, 'introSay', ax - 150, by, 38, '#FF9A3C', 'speaker', () => V.say(sc.intro));
       G.glow(ctx, ax, by, 100, '#B6FFB0', 0.5);

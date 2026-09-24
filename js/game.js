@@ -22,6 +22,7 @@
   const PW = 40, PH = 96;
   const HINT_TIME = 40; // через сколько секунд подсказывать
   const LADDER_GRAB = 58; // как далеко от лестницы можно за неё «схватиться»
+  const CORNER = 16; // насколько ниже края площадки можно «зацепиться» за него сбоку
 
   const TRANSPOSE = [0, 2, -3, 5, -1];
 
@@ -31,10 +32,25 @@
     subtitlePos: 'top',
 
     enter(p) {
-      this.sceneId = p.scene || 'tree';
-      this.idx = Math.max(0, D.sceneIndex(this.sceneId));
-      this.scene = D.scenes[this.idx];
-      this.L = VW.Levels[this.sceneId]();
+      p = p || {};
+      // старый вызов { scene: 'tree' } — первый круг волшебной школы
+      const world = p.world || 'magic';
+      const round = p.round || (VW.Worlds ? VW.Worlds.round(world) : 1);
+      const scenes = VW.Worlds.scenes(world, round);
+      let idx = p.idx != null ? p.idx : 0;
+      if (p.scene) {
+        const i = scenes.findIndex((s) => s.id === p.scene);
+        if (i >= 0) idx = i;
+      }
+      idx = U.clamp(idx | 0, 0, scenes.length - 1);
+      this.world = world;
+      this.round = round;
+      this.scenes = scenes;
+      this.idx = idx;
+      this.scene = scenes[idx];
+      if (p.desc) this.scene = Object.assign({}, this.scene, p.desc); // для проверки: другое «зерно»
+      this.sceneId = this.scene.id;
+      this.L = this.scene.level ? VW.Levels[this.scene.level]() : VW.Gen.build(this.scene);
       this.prepareLevel();
       const L = this.L;
       this.P = {
@@ -46,7 +62,10 @@
       this.coinsGot = 0;
       this.combo = 0;
       this.comboT = 0;
-      this.art = { x: L.artifact.x, y: L.artifact.y, taken: false };
+      const arts = L.artifacts || [{ x: L.artifact.x, y: L.artifact.y, id: this.scene.arts[0] }];
+      this.arts = arts.map((a) => ({ x: a.x, y: a.y, id: a.id, feat: a.feat, taken: false, pop: 0 }));
+      this.art = this.arts[0];
+      this.lastArt = this.arts[0];
       this.fx = new VW.Particles();
       this.hud = new VW.Particles();
       this.flying = [];
@@ -58,11 +77,13 @@
       this.state = 'play';
       this.found = null;
       this.pause = null;
-      this.pet = { x: L.spawn[0] - 60, y: L.spawn[1], facing: 1, moving: false, trail: [] };
+      this.partFound = null;
+      this.pet = { x: L.spawn[0] - 60 * (L.spawnFacing || 1), y: L.spawn[1], facing: L.spawnFacing || 1, moving: false, trail: [] };
       this.cam = { x: 0, y: 0 };
       this.snapCamera();
       this.showKeysHint = !UI.touchMode && !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-      A.music('level', { transpose: TRANSPOSE[this.idx % TRANSPOSE.length] });
+      const mu = this.scene.music || {};
+      A.music(mu.song || 'level', { transpose: mu.transpose || 0, bpm: mu.bpm });
     },
 
     exit() {
@@ -151,6 +172,7 @@
     },
 
     input() {
+      if (this.botInput) return this.botInput;
       const k = UI.key;
       const tk = (id) => UI.held(id);
       return {
@@ -196,11 +218,34 @@
       }
       this.comboT -= dt;
       if (this.comboT <= 0) this.combo = 0;
+      if (this.partFound) {
+        this.partFound.t += dt;
+        if (this.partFound.t > 2.6) this.partFound = null;
+      }
       if (this.L.update) this.L.update(dt, this);
     },
 
+    // ближайшая ещё не найденная находка
+    nextArt() {
+      const P = this.P;
+      let best = null, bd = 1e12;
+      for (const a of this.arts) {
+        if (a.taken) continue;
+        const d = Math.hypot(a.x - P.x, (a.y - P.y) * 1.3);
+        if (d < bd) {
+          bd = d;
+          best = a;
+        }
+      }
+      return best;
+    },
+
     showHint() {
-      V.say(this.scene.hint);
+      const a = this.nextArt();
+      let text = this.scene.hint;
+      if (!text || this.arts.length > 1) text = a ? VW.Gen.hint(this.L, this.P, a, this.L.theme) : '';
+      if (!text) return;
+      V.say(text);
       this.hintUntil = this.t + 8;
       A.sfx('sparkle');
     },
@@ -272,6 +317,7 @@
       P.vy = Math.min(P.vy + GRAV * dt, MAX_FALL);
 
       // по горизонтали
+      const prevX = P.x;
       let nx = P.x + P.vx * dt;
       nx = U.clamp(nx, PW / 2, L.w - PW / 2);
       for (const w of L.walls) {
@@ -305,6 +351,9 @@
           const top = p.top;
           const tol = 1.5 + (p.move ? Math.max(0, -p.dy) + 1 : 0);
           if (prevY <= top + tol && ny >= top && this.overlapX(P.x, p)) {
+            if (!landed || top < landed.top) landed = p;
+          } else if (!p.move && ny >= top && ny - top <= CORNER && this.overlapX(P.x, p) && !this.overlapX(prevX, p)) {
+            // «въехали» в край площадки сбоку чуть ниже верха — ставим на край, а не сквозь
             if (!landed || top < landed.top) landed = p;
           }
         }
@@ -468,8 +517,13 @@
         c.spin += dt * 5;
         if (Math.abs(c.x - cx) < 46 && Math.abs(c.y - cy) < 62) this.takeCoin(c);
       }
-      // артефакт
-      if (!this.art.taken && Math.abs(this.art.x - cx) < 58 && Math.abs(this.art.y - cy) < 70) this.foundArtifact();
+      // находки
+      for (const a of this.arts) {
+        if (!a.taken && Math.abs(a.x - cx) < 58 && Math.abs(a.y - cy) < 70) {
+          this.takeArt(a);
+          if (this.state !== 'play') break;
+        }
+      }
       // предметы, которые оживают от касания
       for (const pr of this.L.props) {
         const inside = cx > pr.x && cx < pr.x + pr.w && cy > pr.y && cy < pr.y + pr.h;
@@ -546,17 +600,34 @@
       else if (!pet.moving) pet.facing = P.x >= pet.x ? 1 : -1;
     },
 
-    // ---------- артефакт найден ----------
+    // ---------- находка ----------
+    takeArt(a) {
+      a.taken = true;
+      this.lastArt = a;
+      const left = this.arts.filter((x) => !x.taken).length;
+      if (left === 0) {
+        this.foundArtifact();
+        return;
+      }
+      // не последняя — маленький праздник, играем дальше
+      A.sfx('found');
+      this.fx.burst('confetti', a.x, a.y - 30, 40, { speed: 480, g: 520, life: 1.6 });
+      this.fx.burst('spark', a.x, a.y, 16, { speed: 260, size: 10, color: '#FFF3A0', life: 0.8 });
+      this.partFound = { t: 0, id: a.id };
+      this.hintUntil = 0;
+      V.say('Ура! ' + D.artName(a.id) + '! ' + (left === 1 ? 'Осталась ещё одна находка!' : 'Осталось ещё ' + left + ' ' + U.plural(left, 'находка', 'находки', 'находок') + '!'));
+    },
+
     foundArtifact() {
       const P = this.P;
-      this.art.taken = true;
+      const a = this.lastArt;
       this.state = 'found';
       P.vx = 0;
       P.anim = 'cheer';
-      const prog = S.world('magic');
+      const prog = S.world(this.world);
       const first = prog.done.indexOf(this.sceneId) < 0;
       const allCoins = this.coinsGot >= this.coins.length;
-      const bonus = first ? D.ARTIFACT_BONUS : D.ARTIFACT_BONUS_AGAIN;
+      const bonus = first ? D.ARTIFACT_BONUS + 5 * (this.arts.length - 1) : D.ARTIFACT_BONUS_AGAIN;
       const coinBonus = allCoins ? D.ALL_COINS_BONUS : 0;
       S.addStars(bonus + coinBonus);
       if (first) prog.done.push(this.sceneId);
@@ -564,14 +635,15 @@
       S.save();
       this.found = {
         t: 0,
-        sx: this.art.x - this.cam.x,
-        sy: this.art.y - this.cam.y,
+        sx: a.x - this.cam.x,
+        sy: a.y - this.cam.y,
+        id: a.id,
         bonus: bonus,
         coinBonus: coinBonus,
         coins: this.coinsGot,
         allCoins: allCoins,
         shown: 0,
-        last: this.idx === D.scenes.length - 1,
+        last: this.idx === this.scenes.length - 1,
       };
       A.sfx('found');
       V.say(this.scene.found + (allCoins ? ' ' + D.say.allCoins : ''));
@@ -603,13 +675,13 @@
     next() {
       const f = this.found;
       A.sfx('magic');
-      if (f && f.last) VW.go('hall', { world: 'magic' });
-      else VW.go('map', { justDone: this.idx });
+      if (f && f.last) VW.go('hall', { world: this.world, round: this.round });
+      else VW.go('map', { world: this.world, justDone: this.idx });
     },
 
     replay() {
       A.sfx('tap');
-      VW.go('game', { scene: this.sceneId });
+      VW.go('game', { world: this.world, round: this.round, idx: this.idx });
     },
 
     openPause() {
@@ -639,10 +711,17 @@
     draw(ctx, W, H) {
       const L = this.L, cam = this.cam, t = this.t;
       const view = { x0: cam.x - 100, y0: cam.y - 100, x1: cam.x + W + 100, y1: cam.y + H + 100 };
+      VW.Art.view = view;
       L.paintSky(ctx, cam, W, H, t);
       ctx.save();
       ctx.translate(-cam.x, -cam.y);
       if (L.paintBack) L.paintBack(ctx, t, view, this);
+      // опоры площадок (стены домов, стебли) — позади лестниц
+      for (const p of L.platforms) {
+        if (p.base == null && !p.back) continue;
+        if (p.x > view.x1 || p.x + p.w < view.x0 || p.top > view.y1 + 50 || (p.base || p.top + 60) < view.y0) continue;
+        VW.Art.platformBack(ctx, p, t);
+      }
       // платформы и лестницы
       for (const l of L.ladders) {
         if (l.x < view.x0 - 60 || l.x > view.x1 + 60 || l.bottom < view.y0 || l.top > view.y1) continue;
@@ -660,11 +739,11 @@
         if (c.taken || c.x < view.x0 || c.x > view.x1 || c.y < view.y0 || c.y > view.y1) continue;
         G.coin(ctx, c.x, c.y + Math.sin(t * 3 + c.x * 0.01) * 3, 17, c.spin);
       }
-      // артефакт
-      if (!this.art.taken) {
-        const a = this.art;
-        const bob = Math.sin(t * 2.5) * 6;
-        I.drawArtifact(ctx, this.scene.artifact, a.x, a.y + bob, 34, t, { glow: true });
+      // находки
+      for (const a of this.arts) {
+        if (a.taken || a.x < view.x0 - 60 || a.x > view.x1 + 60 || a.y < view.y0 - 60 || a.y > view.y1 + 60) continue;
+        const bob = Math.sin(t * 2.5 + a.x * 0.01) * 6;
+        I.drawArtifact(ctx, a.id, a.x, a.y + bob, 34, t, { glow: true });
       }
       // питомец и герой
       this.drawPet(ctx);
@@ -677,11 +756,29 @@
       ctx.restore();
 
       this.drawHUD(ctx, W, H);
+      if (this.partFound && this.state === 'play') this.drawPartFound(ctx, W, H);
       if (this.state === 'play') this.drawControls(ctx, W, H);
       this.hud.draw(ctx);
       this.drawFlying(ctx);
       if (this.state === 'found') this.drawFound(ctx, W, H);
       if (this.state === 'pause') this.drawPause(ctx, W, H);
+    },
+
+    // «Нашла одну из находок» — плашка сверху
+    drawPartFound(ctx, W, H) {
+      const pf = this.partFound;
+      const k = U.easeOutBack(U.clamp(pf.t / 0.35, 0, 1)) * U.clamp((2.6 - pf.t) / 0.3, 0, 1);
+      if (k <= 0) return;
+      const found = this.arts.filter((a) => a.taken).length;
+      const txt = found + ' из ' + this.arts.length;
+      ctx.save();
+      ctx.translate(W / 2, 205);
+      ctx.scale(k, k);
+      G.panel(ctx, -150, -40, 300, 80, { r: 40, fill: '#FFF8E6', stroke: '#2FBF55', lw: 5, shadowY: 5 });
+      G.glow(ctx, -95, 0, 60, '#FFF3A0', 0.6);
+      I.drawArtifact(ctx, pf.id, -95, 0, 28, this.t, {});
+      G.text(ctx, txt, 30, 2, 36, '#2F7A3A', { weight: 900 });
+      ctx.restore();
     },
 
     drawPlayer(ctx) {
@@ -712,7 +809,8 @@
     },
 
     drawHintArrow(ctx) {
-      const P = this.P, a = this.art;
+      const P = this.P, a = this.nextArt();
+      if (!a) return;
       const hx = P.x, hy = P.y - 130;
       const ang = Math.atan2(a.y - hy, a.x - hx);
       const d = Math.hypot(a.x - hx, a.y - hy);
@@ -738,7 +836,7 @@
       ctx.strokeStyle = '#B87800';
       ctx.stroke();
       ctx.restore();
-      I.drawArtifact(ctx, this.scene.artifact, hx, hy, 18, this.t, { sparkles: false });
+      I.drawArtifact(ctx, a.id, hx, hy, 18, this.t, { sparkles: false });
     },
 
     drawDebug(ctx) {
@@ -781,26 +879,45 @@
 
       // «Найди:» — что ищем (нажми — подсказка голосом)
       if (this.state === 'play') {
+        const n = this.arts.length;
         const bx = W / 2, by = 50;
-        const pressed = UI.btnC('find', bx, by, 42, () => this.showHint());
-        const s = pressed ? 0.93 : 1;
-        G.circle(ctx, bx, by + 4, 42 * s);
-        ctx.fillStyle = 'rgba(40,20,80,0.25)';
-        ctx.fill();
-        G.circle(ctx, bx, by, 42 * s);
-        ctx.fillStyle = '#FFF8E6';
-        ctx.fill();
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#F2A900';
-        ctx.stroke();
-        I.drawArtifact(ctx, this.scene.artifact, bx, by, 25 * s, t, { sparkles: false });
-        G.circle(ctx, bx + 32, by + 30, 15);
+        if (n === 1) {
+          const pressed = UI.btnC('find', bx, by, 42, () => this.showHint());
+          const s = pressed ? 0.93 : 1;
+          G.circle(ctx, bx, by + 4, 42 * s);
+          ctx.fillStyle = 'rgba(40,20,80,0.25)';
+          ctx.fill();
+          G.circle(ctx, bx, by, 42 * s);
+          ctx.fillStyle = '#FFF8E6';
+          ctx.fill();
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = '#F2A900';
+          ctx.stroke();
+          I.drawArtifact(ctx, this.arts[0].id, bx, by, 25 * s, t, { sparkles: false });
+          G.circle(ctx, bx + 32, by + 30, 15);
+        } else {
+          const gap = 70, w = gap * n + 20, h = 76;
+          const pressed = UI.btn('find', bx - w / 2, by - h / 2, w, h, () => this.showHint());
+          const s = pressed ? 0.95 : 1;
+          G.panel(ctx, bx - (w / 2) * s, by - (h / 2) * s, w * s, h * s, { r: 38 * s, fill: '#FFF8E6', stroke: '#F2A900', lw: 4, shadowY: 4 });
+          this.arts.forEach((a, i) => {
+            const ax = bx - ((n - 1) * gap) / 2 + i * gap;
+            let k = 1;
+            if (this.partFound && this.partFound.id === a.id) k = 1 + 0.35 * Math.sin(Math.min(1, this.partFound.t / 0.5) * Math.PI);
+            ctx.globalAlpha = a.taken ? 1 : 0.9;
+            I.drawArtifact(ctx, a.id, ax, by, 24 * s * k, t, { sparkles: false });
+            ctx.globalAlpha = 1;
+            if (a.taken) G.checkBadge(ctx, ax + 20, by + 20, 12);
+          });
+          G.circle(ctx, bx + w / 2 - 4, by + 30, 15);
+        }
+        const sx = n === 1 ? bx + 32 : bx + (70 * n + 20) / 2 - 4;
         ctx.fillStyle = '#FF9A3C';
         ctx.fill();
         ctx.lineWidth = 2.5;
         ctx.strokeStyle = '#fff';
         ctx.stroke();
-        G.icon(ctx, 'speaker', bx + 32, by + 30, 8, '#fff', false);
+        G.icon(ctx, 'speaker', sx, by + 30, 8, '#fff', false);
         // пауза
         VW.roundBtn(ctx, 'pause', W - 50, 50, 34, '#8C7BD8', 'pause', () => this.openPause(), 0.5);
       }
@@ -877,7 +994,18 @@
       }
       G.glow(ctx, ax, ay, as * 2, '#FFF3A0', panelK > 0 ? 0.45 : 0.7);
       G.rays(ctx, ax, ay, as * 1.9, t * 0.7, '#FFE680', 14, panelK > 0 ? 0.3 : 0.4);
-      I.drawArtifact(ctx, this.scene.artifact, ax, ay, as, t, {});
+      I.drawArtifact(ctx, f.id, ax, ay, as, t, {});
+      if (this.arts.length > 1 && panelK > 0) {
+        // остальные находки сцены — по бокам
+        const others = this.arts.filter((a) => a !== this.lastArt);
+        others.forEach((a, j) => {
+          const k2 = U.easeOutBack(U.clamp((f.t - 1.25 - j * 0.15) / 0.4, 0, 1));
+          if (k2 <= 0) return;
+          const ox = W / 2 + (j === 0 ? -1 : 1) * 150 * panelK, oy = H / 2 + (py + 175 - H / 2) * panelK;
+          G.glow(ctx, ox, oy, 70 * k2, '#FFF3A0', 0.4);
+          I.drawArtifact(ctx, a.id, ox, oy, 40 * k2 * panelK, t, {});
+        });
+      }
       if (panelK > 0) {
         ctx.save();
         ctx.translate(W / 2, H / 2);
@@ -898,8 +1026,8 @@
             G.coin(ctx, lx, y, 18, t * 3);
             G.text(ctx, r[1] + ' / ' + r[2], lx + 30, y + 1, 28, '#6A4300', { align: 'left', weight: 900 });
           } else if (r[0] === 'art') {
-            I.drawArtifact(ctx, this.scene.artifact, lx, y, 20, t, { sparkles: false });
-            G.text(ctx, this.scene.artName, lx + 30, y + 1, 24, '#6A4300', { align: 'left', weight: 800, maxW: 190 });
+            I.drawArtifact(ctx, f.id, lx, y, 20, t, { sparkles: false });
+            G.text(ctx, this.arts.length > 1 ? 'Все находки' : D.artName(f.id), lx + 30, y + 1, 24, '#6A4300', { align: 'left', weight: 800, maxW: 190 });
           } else {
             G.coin(ctx, lx - 8, y, 13, 0);
             G.coin(ctx, lx + 8, y, 13, 0.5);
@@ -936,7 +1064,7 @@
       const by = py + ph - 110;
       VW.roundBtn(ctx, 'pHome', W / 2 - 160, by, 44, '#8C7BD8', 'map', () => {
         A.sfx('back');
-        VW.go('map', {});
+        VW.go('map', { world: this.world });
       }, 0.55);
       G.glow(ctx, W / 2, by, 120, '#B6FFB0', 0.5);
       VW.roundBtn(ctx, 'pPlay', W / 2, by, 64, '#2FBF55', 'play', () => this.closePause(), 0.62);

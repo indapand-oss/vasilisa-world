@@ -241,7 +241,12 @@
     window.addEventListener('pagehide', () => VW.Store.save());
 
     const start = params.get('screen');
-    if (VW.debug && start && VW.screens[start]) switchTo(start, { debug: true, scene: params.get('scene') });
+    if (VW.debug && start && VW.screens[start]) {
+      const dp = { debug: true, scene: params.get('scene') || undefined, world: params.get('world') || undefined };
+      if (params.has('round')) dp.round = parseInt(params.get('round'), 10) || 1;
+      if (params.has('idx')) dp.idx = parseInt(params.get('idx'), 10) || 0;
+      switchTo(start, dp);
+    }
     else switchTo('title', {});
     requestAnimationFrame(frame);
 

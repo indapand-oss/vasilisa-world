@@ -93,18 +93,89 @@
   // Какой герой соответствует старому «набору-костюму» (для старых сохранений)
   D.heroForOldSet = { wizard: 'w_gosha', robot: 'r_robik', fairy: 'f_roza', hero: 'h_kostya', animal: 'a_bunny', god: 'g_yarik' };
 
-  // Миры (эскиз 2). Играбельный пока один
+  // Миры (эскиз 2). Волшебная школа открыта сразу, остальные открываются за звёздочку.
+  // themes — сцены мира (оформление, см. themes.js), arts — находки мира
   D.worlds = [
-    { id: 'magic', name: 'Волшебная школа', say: 'Мир волшебной школы!', icon: 'wand', color: '#9B7BFF', playable: true },
-    { id: 'spider', name: 'Герой-паук', say: 'Мир героя-паука.', icon: 'web', color: '#FF7A7A' },
-    { id: 'robots', name: 'Роботы', say: 'Вселенная роботов.', icon: 'robot', color: '#7FA8E0' },
-    { id: 'plants', name: 'Растения', say: 'Мир растений.', icon: 'flower', color: '#66CC7E' },
-    { id: 'elves', name: 'Эльфы и жучки', say: 'Эльфы с насекомыми.', icon: 'bug', color: '#F5B041' },
-    { id: 'kitchen', name: 'Кухня', say: 'Кухня.', icon: 'pot', color: '#F78FB8' },
-    { id: 'forest', name: 'Лес', say: 'Лес.', icon: 'tree', color: '#4DB35E' },
-    { id: 'city', name: 'Город', say: 'Город.', icon: 'city', color: '#8C9BB5' },
-    { id: 'internet', name: 'Интернет', say: 'Интернет.', icon: 'net', color: '#3CC0E0' },
+    { id: 'magic', name: 'Волшебная школа', say: 'Мир волшебной школы!', icon: 'wand', color: '#9B7BFF', price: 0,
+      themes: ['magicForest', 'magicLibrary', 'magicPotions', 'magicCastle'], arts: ['wand', 'glasses', 'book', 'potion', 'star', 'crystal', 'wizardHat'] },
+    { id: 'spider', name: 'Герой-паук', say: 'Мир героя-паука!', icon: 'web', color: '#FF7A7A', price: 1,
+      themes: ['roofs', 'webpark', 'skyscraper'], arts: ['spiderBadge', 'heroMask', 'webBall', 'heroWatch', 'heroCup'] },
+    { id: 'robots', name: 'Роботы', say: 'Вселенная роботов!', icon: 'robot', color: '#7FA8E0', price: 1,
+      themes: ['factory', 'warehouse', 'spaceport'], arts: ['gear', 'battery', 'robotHeart', 'remote', 'screw'] },
+    { id: 'plants', name: 'Растения', say: 'Мир растений!', icon: 'flower', color: '#66CC7E', price: 1,
+      themes: ['garden', 'greenhouse', 'giantflowers'], arts: ['seed', 'wateringCan', 'rainbowFlower', 'goldCarrot', 'strawberry'] },
+    { id: 'elves', name: 'Эльфы и жучки', say: 'Мир эльфов и жучков!', icon: 'bug', color: '#F5B041', price: 1,
+      themes: ['mushrooms', 'bugtown', 'fireflies'], arts: ['acornLamp', 'dewdrop', 'clover', 'honeyPot', 'elfFlute'] },
+    { id: 'kitchen', name: 'Кухня', say: 'Волшебная кухня!', icon: 'pot', color: '#F78FB8', price: 1,
+      themes: ['cupboard', 'stove', 'cake'], arts: ['goldSpoon', 'teapot', 'cupcake', 'jamJar', 'pie'] },
+    { id: 'forest', name: 'Лес', say: 'Сказочный лес!', icon: 'tree', color: '#4DB35E', price: 1,
+      themes: ['birches', 'berries', 'oak'], arts: ['pineCone', 'berryBasket', 'owlFeather', 'mushroomB', 'goldLeaf'] },
+    { id: 'city', name: 'Город', say: 'Большой город!', icon: 'city', color: '#8C9BB5', price: 1,
+      themes: ['street', 'park', 'construction'], arts: ['cityKey', 'balloon', 'hardHat', 'iceCream', 'ticket'] },
+    { id: 'internet', name: 'Интернет', say: 'Страна интернета!', icon: 'net', color: '#3CC0E0', price: 1,
+      themes: ['cloudpics', 'pixel', 'servers'], arts: ['smiley', 'likeHeart', 'letter', 'pcMouse', 'gamepad'] },
   ];
+  D.worldById = {};
+  for (const w of D.worlds) D.worldById[w.id] = w;
+
+  // Находки: как называются (name) и как сказать «найди …» (acc)
+  D.arts = {
+    wand: ['Волшебная палочка', 'волшебную палочку'],
+    glasses: ['Очки', 'очки'],
+    book: ['Книга заклинаний', 'книгу заклинаний'],
+    potion: ['Радужное зелье', 'радужное зелье'],
+    star: ['Звезда желаний', 'звезду желаний'],
+    crystal: ['Хрустальный шар', 'хрустальный шар'],
+    wizardHat: ['Шляпа волшебника', 'шляпу волшебника'],
+    spiderBadge: ['Значок-паучок', 'значок-паучок'],
+    heroMask: ['Маска героя', 'маску героя'],
+    webBall: ['Клубок паутинки', 'клубок паутинки'],
+    heroWatch: ['Часы героя', 'часы героя'],
+    heroCup: ['Кубок героя', 'кубок героя'],
+    gear: ['Золотая шестерёнка', 'золотую шестерёнку'],
+    battery: ['Батарейка', 'батарейку'],
+    robotHeart: ['Сердце робота', 'сердце робота'],
+    remote: ['Пульт', 'пульт'],
+    screw: ['Волшебный винтик', 'волшебный винтик'],
+    seed: ['Волшебное семечко', 'волшебное семечко'],
+    wateringCan: ['Лейка', 'лейку'],
+    rainbowFlower: ['Радужный цветок', 'радужный цветок'],
+    goldCarrot: ['Золотая морковка', 'золотую морковку'],
+    strawberry: ['Клубничка', 'клубничку'],
+    acornLamp: ['Фонарик-жёлудь', 'фонарик-жёлудь'],
+    dewdrop: ['Капелька росы', 'капельку росы'],
+    clover: ['Клевер удачи', 'клевер удачи'],
+    honeyPot: ['Горшочек мёда', 'горшочек мёда'],
+    elfFlute: ['Дудочка эльфа', 'дудочку эльфа'],
+    goldSpoon: ['Золотая ложка', 'золотую ложку'],
+    teapot: ['Чайничек', 'чайничек'],
+    cupcake: ['Кексик', 'кексик'],
+    jamJar: ['Банка варенья', 'банку варенья'],
+    pie: ['Пирожок', 'пирожок'],
+    pineCone: ['Шишка', 'шишку'],
+    berryBasket: ['Лукошко с ягодами', 'лукошко с ягодами'],
+    owlFeather: ['Пёрышко совы', 'пёрышко совы'],
+    mushroomB: ['Гриб-боровик', 'гриб-боровик'],
+    goldLeaf: ['Золотой листик', 'золотой листик'],
+    cityKey: ['Ключ от города', 'ключ от города'],
+    balloon: ['Воздушный шарик', 'воздушный шарик'],
+    hardHat: ['Каска строителя', 'каску строителя'],
+    iceCream: ['Мороженое', 'мороженое'],
+    ticket: ['Билетик', 'билетик'],
+    smiley: ['Смайлик', 'смайлик'],
+    likeHeart: ['Сердечко', 'сердечко'],
+    letter: ['Письмо', 'письмо'],
+    pcMouse: ['Компьютерная мышка', 'компьютерную мышку'],
+    gamepad: ['Джойстик', 'джойстик'],
+  };
+  D.artName = (id) => (D.arts[id] || ['Находка'])[0];
+  D.artAcc = (id) => (D.arts[id] || ['', 'находку'])[1];
+  // «золотую шестерёнку, батарейку и пульт»
+  D.listAcc = function (ids) {
+    const a = ids.map(D.artAcc);
+    if (a.length <= 1) return a[0] || '';
+    return a.slice(0, -1).join(', ') + ' и ' + a[a.length - 1];
+  };
 
   // Сцены мира волшебной школы
   D.scenes = [
@@ -176,8 +247,9 @@
     character: 'Выбери, какой ты будешь! Нажимай на цвета, наряды и героев внизу.',
     characterAgain: 'Какой ты будешь сегодня?',
     worlds: 'Выбери мир!',
-    worldLocked: 'Этот мир скоро откроется!',
-    moreWorlds: 'Скоро миров будет очень много. Тысяча!',
+    worldLocked: 'Этот мир можно открыть за одну звёздочку!',
+    worldNeedStar: 'Нужна одна звёздочка! Собирай монетки в волшебной школе.',
+    worldOpened: 'Ура! Новый мир открыт!',
     map: 'Куда пойдём?',
     sceneLocked: 'Сначала пройди прошлую сцену!',
     hallLocked: 'Праздник будет в самом конце! Пройди все сцены.',
@@ -185,6 +257,7 @@
     bought: 'Ура! Теперь это твоё!',
     allCoins: 'Ты собрала все монетки!',
     hall: 'Праздник в честь Василисы! Ты прошла мир волшебной школы!',
+    hallWorld: 'Праздник в честь Василисы! Ты прошла мир',
     hallCount: 'Посмотри, сколько звёздочек!',
     pause: 'Пауза. Отдохни немножко!',
     tapHero: ['Хи-хи!', 'Привет!', 'Я готова!', 'Ура!'],

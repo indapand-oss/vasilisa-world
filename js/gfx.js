@@ -99,12 +99,32 @@
     if (alpha != null) ctx.globalAlpha = 1;
   };
 
+  // Мягкое свечение. Градиент рисуется один раз в маленькую картинку (на каждый цвет),
+  // дальше её просто растягиваем — так в десятки раз быстрее, чем создавать градиент каждый кадр.
+  const glowCache = new Map();
+  function glowSprite(color) {
+    let c = glowCache.get(color);
+    if (c) return c;
+    c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, U.rgba(color, 1));
+    grad.addColorStop(1, U.rgba(color, 0));
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    if (glowCache.size > 60) glowCache.clear();
+    glowCache.set(color, c);
+    return c;
+  }
   G.glow = function (ctx, x, y, r, color, alpha) {
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, U.rgba(color, alpha == null ? 0.6 : alpha));
-    g.addColorStop(1, U.rgba(color, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    if (!(r > 0)) return;
+    const a = alpha == null ? 0.6 : alpha;
+    if (a <= 0) return;
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = prev * Math.min(1, a);
+    ctx.drawImage(glowSprite(color), x - r, y - r, r * 2, r * 2);
+    ctx.globalAlpha = prev;
   };
 
   G.rays = function (ctx, x, y, r, t, color, n, alpha) {

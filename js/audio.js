@@ -363,6 +363,72 @@
       ],
     },
   };
+  // Город: бодрая, с синкопами
+  SONGS.city = {
+    bpm: 120,
+    stepBeats: 0.5,
+    tracks: [
+      {
+        inst: 'bell', vol: 0.45,
+        notes: 'E5 . G5 . A5 . G5 E5 | D5 . E5 - . . C5 . | E5 . G5 . A5 . C6 A5 | G5 - - . . . . . | A5 . A5 . G5 . E5 G5 | A5 . G5 - E5 . D5 . | C5 . D5 . E5 . G5 E5 | D5 - - . C5 - - . |',
+      },
+      {
+        inst: 'bass', vol: 0.5,
+        notes: 'C3 . C3 . G2 . G2 . | F2 . F2 . C3 . C3 . | C3 . C3 . G2 . G2 . | G2 . G2 . G2 . B2 . | F2 . F2 . C3 . C3 . | F2 . F2 . G2 . G2 . | C3 . C3 . A2 . A2 . | G2 . G2 . C3 . . . |',
+      },
+      { inst: 'hat', vol: 0.3, notes: '. C6 . C6 . C6 . C6 |'.repeat(8) },
+      { inst: 'kick', vol: 0.4, notes: 'C2 . . . C2 . . . |'.repeat(8) },
+    ],
+  };
+  // Техника: переливы-арпеджио
+  SONGS.tech = {
+    bpm: 132,
+    stepBeats: 0.5,
+    tracks: [
+      {
+        inst: 'bell', vol: 0.38,
+        notes: 'C5 E5 G5 C6 G5 E5 C5 E5 | D5 F5 A5 D6 A5 F5 D5 F5 | E5 G5 B5 E6 B5 G5 E5 G5 | F5 A5 C6 F6 C6 A5 G5 - | C5 E5 G5 C6 G5 E5 C5 E5 | A4 C5 E5 A5 E5 C5 A4 C5 | F4 A4 C5 F5 G4 B4 D5 G5 | C5 - G4 - C5 - . . |',
+      },
+      {
+        inst: 'bass', vol: 0.5,
+        notes: 'C3 . . . C3 . . . | D3 . . . D3 . . . | E3 . . . E3 . . . | F3 . . . G2 . . . | C3 . . . C3 . . . | A2 . . . A2 . . . | F2 . . . G2 . . . | C3 . . . . . . . |',
+      },
+      { inst: 'hat', vol: 0.25, notes: 'C6 . C6 . C6 . C6 . |'.repeat(8) },
+      { inst: 'kick', vol: 0.4, notes: 'C2 . . . C2 . . . |'.repeat(8) },
+    ],
+  };
+  // Природа: нежная, «покачивается» (6/8)
+  SONGS.nature = {
+    bpm: 100,
+    stepBeats: 0.5,
+    tracks: [
+      {
+        inst: 'bell', vol: 0.45,
+        notes: 'G5 - E5 C5 - D5 | E5 - - C5 - - | A5 - G5 E5 - G5 | F5 - - D5 - - | G5 - E5 C5 - E5 | D5 - C5 A4 - C5 | B4 - D5 G5 - F5 | E5 - - C5 - - |',
+      },
+      {
+        inst: 'bass', vol: 0.5,
+        notes: 'C3 - - G2 - - | A2 - - E2 - - | F2 - - C3 - - | D3 - - G2 - - | C3 - - E3 - - | F2 - - A2 - - | G2 - - B2 - - | C3 - - C3 - - |',
+      },
+    ],
+  };
+  // Кухня: прыгучая
+  SONGS.bouncy = {
+    bpm: 126,
+    stepBeats: 0.5,
+    tracks: [
+      {
+        inst: 'bell', vol: 0.45,
+        notes: 'C5 . C5 . E5 . G5 . | A5 . G5 . E5 - . . | F5 . F5 . A5 . F5 . | E5 . D5 . C5 - . . | G5 . G5 . A5 . G5 . | E5 . C5 . D5 - . . | E5 . G5 . F5 . D5 . | C5 - - . . . . . |',
+      },
+      {
+        inst: 'bass', vol: 0.5,
+        notes: 'C3 . G2 . C3 . G2 . | F2 . C3 . F2 . C3 . | F2 . C3 . F2 . C3 . | C3 . G2 . C3 . G2 . | E2 . B2 . E2 . B2 . | A2 . E3 . A2 . E3 . | F2 . C3 . G2 . D3 . | C3 . G2 . C3 . . . |',
+      },
+      { inst: 'hat', vol: 0.28, notes: '. C6 . C6 . C6 . C6 |'.repeat(8) },
+      { inst: 'kick', vol: 0.4, notes: 'C2 . . . C2 . . . |'.repeat(8) },
+    ],
+  };
   for (const k of Object.keys(SONGS)) SONGS[k].tracks.forEach((tr) => Object.assign(tr, parseTrack(tr.notes)));
 
   function playInst(inst, m, t, dur, vol) {
@@ -435,6 +501,7 @@
 
   // name: 'menu' | 'level' | 'hall'; opts: {transpose, bpm}
   A.music = function (name, opts) {
+    if (!SONGS[name]) name = 'level';
     const desc = Object.assign({ name: name }, opts || {});
     const same = musicWanted && musicWanted.name === desc.name && musicWanted.transpose === desc.transpose && musicWanted.bpm === desc.bpm;
     musicWanted = desc;
