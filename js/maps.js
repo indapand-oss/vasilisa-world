@@ -60,7 +60,13 @@
 
   // ---------- волшебная школа ----------
   P.magic = function (ctx, W, H, t, round) {
-    VW.landscape(ctx, W, H, t, tod(round) !== 0);
+    const k = tod(round); // 1-й уровень — вечер (как раньше), потом день и ночь
+    VW.landscape(ctx, W, H, t, k !== 1);
+    if (k === 2) {
+      ctx.fillStyle = 'rgba(20,20,70,0.38)';
+      ctx.fillRect(0, 0, W, H);
+      G.nightStars(ctx, W, H * 0.5, t, 31, 50);
+    }
   };
 
   // ---------- герой-паук: город на закате ----------
@@ -503,7 +509,16 @@
   };
 
   M.paint = function (ctx, W, H, t, world, round) {
-    (P[world] || P.magic)(ctx, W, H, t, round || 1);
+    round = round || 1;
+    // каждые три уровня пейзаж отражается — другой рельеф и дорожка
+    const mirror = Math.floor((round - 1) / 3) % 2 === 1;
+    if (mirror) {
+      ctx.save();
+      ctx.translate(W, 0);
+      ctx.scale(-1, 1);
+    }
+    (P[world] || P.magic)(ctx, W, H, t, round);
+    if (mirror) ctx.restore();
   };
 
   // Цвет дорожки и кружков на карте

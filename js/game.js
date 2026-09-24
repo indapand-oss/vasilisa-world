@@ -624,7 +624,7 @@
       this.state = 'found';
       P.vx = 0;
       P.anim = 'cheer';
-      const prog = S.world(this.world);
+      const prog = S.roundProg(this.world, this.round);
       const first = prog.done.indexOf(this.sceneId) < 0;
       const allCoins = this.coinsGot >= this.coins.length;
       const bonus = first ? D.ARTIFACT_BONUS + 5 * (this.arts.length - 1) : D.ARTIFACT_BONUS_AGAIN;
@@ -676,7 +676,7 @@
       const f = this.found;
       A.sfx('magic');
       if (f && f.last) VW.go('hall', { world: this.world, round: this.round });
-      else VW.go('map', { world: this.world, justDone: this.idx });
+      else VW.go('map', { world: this.world, round: this.round, justDone: this.idx });
     },
 
     replay() {
@@ -1064,7 +1064,7 @@
       const by = py + ph - 110;
       VW.roundBtn(ctx, 'pHome', W / 2 - 160, by, 44, '#8C7BD8', 'map', () => {
         A.sfx('back');
-        VW.go('map', { world: this.world });
+        VW.go('map', { world: this.world, round: this.round });
       }, 0.55);
       G.glow(ctx, W / 2, by, 120, '#B6FFB0', 0.5);
       VW.roundBtn(ctx, 'pPlay', W / 2, by, 64, '#2FBF55', 'play', () => this.closePause(), 0.62);

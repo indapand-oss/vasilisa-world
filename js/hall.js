@@ -18,19 +18,22 @@
       this.wdef = D.worldById[this.world] || D.worlds[0];
       this.theme = VW.Maps.hall[this.world] || VW.Maps.hall.magic;
       this.scenes = VW.Worlds.scenes(this.world, this.round);
-      const prog = S.world(this.world);
+      const cur = VW.Worlds.round(this.world);
+      const prog = S.roundProg(this.world, this.round);
       this.t = 0;
       this.fx = new VW.Particles();
       this.counts = this.scenes.map((s) => prog.best[s.id] || 0);
       this.total = this.counts.reduce((a, b) => a + b, 0);
       this.bonus = 0;
+      this.newRound = 0;
       const allDone = this.scenes.every((s) => prog.done.indexOf(s.id) >= 0);
-      if (!prog.bonusGiven && allDone) {
+      if (this.round >= cur && !prog.bonusGiven && allDone) {
         prog.bonusGiven = true;
         prog.finished = true;
         this.bonus = D.WORLD_BONUS;
         S.addStars(this.bonus);
-        S.save();
+        // мир пройден до праздника — открывается следующий уровень
+        this.newRound = S.advanceRound(this.world);
       }
       // очередь звёзд: столбик за столбиком
       this.queue = [];
@@ -110,7 +113,7 @@
           this.phase = 'done';
           this.doneT = 0;
           A.sfx('found');
-          V.say(D.say.hallCount + ' Всего звёздочек: ' + this.total + '!');
+          V.say(D.say.hallCount + ' Всего звёздочек: ' + this.total + '!' + (this.newRound ? ' А ещё открылся уровень ' + this.newRound + '! Там новые сцены и находки!' : ''));
           this.fx.burst('confetti', W / 2, H * 0.3, 80, { speed: 700, g: 500, life: 2.5 });
         }
       }
@@ -144,7 +147,7 @@
 
     toMap() {
       A.sfx('tap');
-      VW.go('map', { world: this.world });
+      VW.go('map', this.newRound ? { world: this.world } : { world: this.world, round: this.round });
     },
 
     draw(ctx, W, H) {
@@ -309,6 +312,20 @@
           G.starIcon(ctx, -26, 0, 17);
           G.text(ctx, '+' + this.bonus, 14, 2, 26, '#fff', { weight: 900 });
           ctx.restore();
+        }
+        if (this.newRound && this.doneT > 1.2) {
+          // «Открылся уровень N!» — лента, нажмёшь — на карту нового уровня
+          const k = U.easeOutBack(Math.min(1, (this.doneT - 1.2) / 0.5));
+          const bw = 420, bh = 76, bx = W / 2, by = H * 0.44;
+          const pressed = UI.btn('hallNewRound', bx - bw / 2, by - bh / 2, bw, bh, () => this.toMap());
+          ctx.save();
+          ctx.translate(bx, by);
+          ctx.scale(k, k);
+          const oy = G.button3d(ctx, -bw / 2, -bh / 2, bw, bh, this.wdef.color, pressed, 38);
+          G.starIcon(ctx, -bw / 2 + 44, oy, 22, { rot: Math.sin(this.t * 3) * 0.3 });
+          G.text(ctx, 'Уровень ' + this.newRound + ' открыт!', 20, oy + 2, 32, '#fff', { weight: 900, stroke: U.shade(this.wdef.color, -0.5), lw: 6 });
+          ctx.restore();
+          G.glow(ctx, bx, by, 260, '#FFF3A0', 0.25 + 0.1 * Math.sin(this.t * 4));
         }
         if (this.doneT > 0.8) {
           VW.roundBtn(ctx, 'hallHome', W - 56, 56, 40, '#8C7BD8', 'home', () => this.home(), 0.55);

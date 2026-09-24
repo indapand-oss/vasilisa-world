@@ -52,6 +52,7 @@
     deco: [], front: 'fireflies', friend: 'owl',
     words: { pad: 'котёл', lift: 'ковёр-самолёт', plats: 'балкончикам' },
     connect: { ladder: 3, stairs: 2, lift: 2, bounce: 1 },
+    variants: [{ name: 'Замок на рассвете' }, { name: 'Замок днём' }],
     music: { song: 'level', transpose: -1 },
   };
 
@@ -88,6 +89,7 @@
     palette: ['#3E4A7A'], ladder: 'metal', column: 'antenna', friend: 'spider',
     words: { pad: 'навес-батут', lift: 'люльку', plats: 'балкончикам' },
     connect: { ladder: 3, stairs: 2, lift: 2, bounce: 1 },
+    variants: [{ name: 'Небоскрёб на рассвете' }, { name: 'Небоскрёб днём' }],
     music: { song: 'city', transpose: 2 },
   };
 
@@ -189,6 +191,7 @@
     palette: ['#5AE0FF', '#B983FF', '#7CFFB0', '#FF9EE0'], ladder: 'vine', column: 'darkTrunk', front: 'fireflies', friend: 'elf',
     words: { pad: 'гриб-батут', lift: 'божью коровку', plats: 'светящимся грибам' },
     connect: { ladder: 3, stairs: 2, lift: 1, bounce: 2 },
+    variants: [{ name: 'Светлячковый вечер' }, { name: 'Светлячковое утро' }],
     music: { song: 'nature', transpose: -4, bpm: 96 },
   };
 
@@ -325,6 +328,10 @@
     palette: ['#4FD1FF', '#7CFFB0', '#FF9EE0'], ladder: 'cable', column: 'cable', front: 'iconsUp', friend: 'smile',
     words: { pad: 'смайлик-батут', lift: 'светящийся лифт', plats: 'полочкам' },
     connect: { ladder: 3, stairs: 2, lift: 2, bounce: 1 },
+    variants: [
+      { name: 'Розовая башня серверов', wall: { kind: 'grid', base: '#3A1B40', line: '#5A2760', light: '#FF9EE0' } },
+      { name: 'Зелёная башня серверов', wall: { kind: 'grid', base: '#10302A', line: '#1E4A40', light: '#7CFFB0' } },
+    ],
     music: { song: 'tech', transpose: -3 },
   };
 
@@ -332,6 +339,89 @@
     T[id].id = id;
     T[id].words = Object.assign({}, WORDS, T[id].words || {});
   }
+
+  // ---------- варианты сцен для следующих уровней ----------
+  // 1 — вечер (у ночных сцен — рассвет), 2 — ночь (у ночных — день). Помещения темнеют/теплеют.
+  function mix(c1, c2, k) {
+    if (typeof c1 !== 'string' || c1[0] !== '#' || typeof c2 !== 'string' || c2[0] !== '#') return c1;
+    const a = U.hexToRgb(c1), b = U.hexToRgb(c2);
+    return U.rgbToHex(U.lerp(a[0], b[0], k), U.lerp(a[1], b[1], k), U.lerp(a[2], b[2], k));
+  }
+  Th.mix = mix;
+  function tintFar(far, tint, k, lit) {
+    if (!far) return far;
+    return far.map((o) => Object.assign({}, o, { color: mix(o.color, tint, k), lit: o.lit != null ? Math.max(o.lit, lit || 0) : o.lit, _items: null }));
+  }
+  const SKY_EVE = ['#5A3FC0', '#B06FD0', '#FF9ECF', '#FFD9A0'];
+  const SKY_NIGHT = ['#141A45', '#26306E', '#3E4A9A', '#5A5AB8'];
+  const SKY_DAWN = ['#7A6AD0', '#E8A0C8', '#FFD0A0', '#FFF0C8'];
+  const SKY_DAY = ['#6FC0FF', '#A8DCFF', '#E4F6FF'];
+  const vcache = {};
+  Th.variant = function (th, v) {
+    if (!v || !th) return th;
+    const key = th.id + ':' + v;
+    if (vcache[key]) return vcache[key];
+    const out = Object.assign({}, th);
+    const nightBase = !!(th.moon || th.stars > 40);
+    let suffix = '';
+    if (th.sky) {
+      if (!nightBase && v === 1) {
+        suffix = ' вечером';
+        out.sky = SKY_EVE;
+        out.sun = { x: th.sun ? th.sun.x : 0.8, y: 440, r: 66, color: '#FFB36B', glow: '#FFD49A' };
+        out.stars = 16;
+        if (th.clouds) out.clouds = { n: th.clouds.n, color: 'rgba(255,214,230,0.85)', shadow: 'rgba(160,90,150,0.3)' };
+        out.far = tintFar(th.far, '#6A3F90', 0.35, 0.15);
+      } else if (!nightBase) {
+        suffix = ' ночью';
+        out.sky = SKY_NIGHT;
+        out.sun = null;
+        out.pixelSun = false;
+        out.moon = { x: th.sun ? th.sun.x : 0.8, y: 110, r: 44 };
+        out.stars = 70;
+        if (th.clouds) out.clouds = { n: 2, color: 'rgba(200,200,255,0.22)', shadow: 'rgba(0,0,0,0)' };
+        out.far = tintFar(th.far, '#1E2A5A', 0.62, 0.35);
+        if (!th.front || th.front === 'butterflies' || th.front === 'pollen' || th.front === 'leaves') out.front = 'fireflies';
+      } else if (v === 1) {
+        suffix = ' на рассвете';
+        out.sky = SKY_DAWN;
+        out.moon = null;
+        out.stars = 0;
+        out.sun = { x: 0.2, y: 430, r: 60, color: '#FFC080', glow: '#FFE0B0' };
+        out.far = tintFar(th.far, '#B08AC8', 0.45, 0);
+      } else {
+        suffix = ' днём';
+        out.sky = SKY_DAY;
+        out.moon = null;
+        out.stars = 0;
+        out.planet = false;
+        out.sun = { x: 0.82, y: 100, r: 50, color: '#FFE45C', glow: '#FFF3A0' };
+        out.clouds = { n: 4 };
+        out.far = tintFar(th.far, '#A6B8F0', 0.6, 0);
+        if (th.front === 'fireflies') out.front = 'butterflies';
+      }
+    } else if (th.wall) {
+      // помещения
+      const w = th.wall;
+      if (v === 1) {
+        suffix = ' вечером';
+        out.wall = Object.assign({}, w, { base: mix(w.base, '#FFB070', 0.18), line: mix(w.line, '#C07040', 0.15), light: mix(w.light, '#FFD0A0', 0.2) });
+      } else {
+        suffix = ' ночью';
+        out.wall = Object.assign({}, w, { base: mix(w.base, '#1E2050', 0.38), line: mix(w.line, '#141638', 0.38), light: mix(w.light, '#2A2E66', 0.35) });
+        out.moon = null;
+        out.nightIndoor = true;
+      }
+      if (w.sky) out.wall.sky = v === 1 ? ['#FFB38A', '#FFE0C0'] : ['#141A45', '#3A4F9A'];
+    }
+    const custom = (th.variants || [])[v - 1] || {};
+    Object.assign(out, custom);
+    out.name = custom.name || th.name + suffix;
+    out.variantOf = th.id;
+    out.variant = v;
+    vcache[key] = out;
+    return out;
+  };
 
   // ---------- «одеть» уровень ----------
   const FALLBACK = { ground: 'grass', floor: 'balcony', plat: 'plank', walk: 'plank', top: 'plank', perch: 'plank', pad: 'mushroom', mover: 'cloud', lift: 'cloud', block: 'stone', stone: 'rock', hidden: 'none' };
@@ -341,7 +431,7 @@
     const ST = VW.Art.styles;
     const pal = theme.palette || ['#E57373'];
     L.theme = theme;
-    L.night = !!(theme.moon || theme.stars > 40);
+    L.night = !!(theme.moon || theme.stars > 40 || theme.nightIndoor);
     for (const p of L.platforms) {
       let st = p.kind === 'hidden' ? 'none' : (theme.styles && theme.styles[p.kind]) || (theme.styles && theme.styles.plat);
       if (st !== 'none' && !ST[st]) st = FALLBACK[p.kind] || 'plank';

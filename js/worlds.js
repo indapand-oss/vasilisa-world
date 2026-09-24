@@ -35,7 +35,8 @@
   Wd.sceneCount = function (worldId, round) {
     if (worldId === 'magic' && round === 1) return D.scenes.length;
     if (round <= 1) return Wd.get(worldId).themes.length >= 3 ? 3 : Wd.get(worldId).themes.length;
-    return Math.min(5, 3 + Math.floor((round - 1) / 2));
+    const n = Math.min(5, 3 + Math.floor((round - 1) / 2));
+    return worldId === 'magic' ? Math.max(4, n) : n;
   };
 
   // Сколько находок в сцене на круге
@@ -93,23 +94,23 @@
           if (arts.indexOf(a) < 0) arts.push(a);
           else if (w.arts.length <= arts.length) break;
         }
-        // на следующих кругах — другое время суток
-        const variant = round === 1 ? 0 : (round + i) % Math.max(1, (th.variants || [null]).length);
-        const vv = (th.variants || [])[variant] || {};
-        const name = th.name + (vv.suffix || '');
+        // на следующих уровнях — другое время суток и свои цвета
+        const variant = round === 1 ? 0 : 1 + ((round + i) % 2);
+        const vth = VW.Themes.variant(th, variant);
+        const name = vth.name;
         return {
           id: 'r' + round + '-' + i,
           name: name,
           themeId: tid,
-          theme: th,
+          theme: vth,
           variant: variant,
-          layout: th.layout || 'wide',
+          layout: vth.layout || 'wide',
           seed: hash(key + ':' + i + ':' + tid),
           round: round,
           arts: arts,
           intro: name + '. Найди ' + D.listAcc(arts) + '!',
           found: arts.length > 1 ? 'Ура! Ты нашла все находки!' : 'Ура! Ты нашла ' + D.artAcc(arts[0]) + '!',
-          music: th.music || { song: 'level', transpose: 0 },
+          music: vth.music || { song: 'level', transpose: 0 },
         };
       });
     }

@@ -1,6 +1,6 @@
 /* Vasilisa World — офлайн-режим.
    Сначала пробуем сеть (чтобы всегда была свежая версия), без сети — берём из кэша. */
-const CACHE = 'vasilisa-world-v3';
+const CACHE = 'vasilisa-world-v4';
 const ASSETS = [
   './',
   'index.html',

@@ -5,7 +5,7 @@
   const KEY = 'vasilisa-world-v1';
   const S = (VW.Store = {});
 
-  const VERSION = 3;
+  const VERSION = 4;
 
   S.defaults = function () {
     return {
@@ -21,8 +21,9 @@
   };
 
   // Прогресс мира: открыт ли, какой круг, какие сцены круга пройдены, лучшие монетки
+  // past — пройденные раньше уровни (круги): { '1': { done, best, bonusGiven } }
   function worldDefaults() {
-    return { unlocked: false, round: 1, done: [], best: {}, finished: false, bonusGiven: false, rounds: 0 };
+    return { unlocked: false, round: 1, done: [], best: {}, finished: false, bonusGiven: false, rounds: 0, past: {} };
   }
 
   function merge(target, src) {
@@ -61,7 +62,12 @@
     if (!Array.isArray(S.data.owned)) S.data.owned = [];
     if (!S.data.worlds || typeof S.data.worlds !== 'object') S.data.worlds = {};
     for (const id of Object.keys(S.data.worlds)) {
-      S.data.worlds[id] = merge(worldDefaults(), S.data.worlds[id]);
+      const w = (S.data.worlds[id] = merge(worldDefaults(), S.data.worlds[id]));
+      if (!Array.isArray(w.done)) w.done = [];
+      if (!w.best || typeof w.best !== 'object') w.best = {};
+      if (!w.past || typeof w.past !== 'object') w.past = {};
+      if (typeof w.round !== 'number' || !(w.round >= 1)) w.round = 1;
+      w.round = Math.floor(w.round);
     }
     if (typeof S.data.stars !== 'number' || !isFinite(S.data.stars) || S.data.stars < 0) S.data.stars = 0;
     // Проверяем, что надетые вещи существуют и куплены
@@ -96,6 +102,28 @@
           if (!w || typeof w !== 'object') continue;
           if ((Array.isArray(w.done) && w.done.length) || w.finished) w.unlocked = true;
           if (typeof w.round !== 'number') w.round = 1;
+        }
+      }
+    }
+    if (v < 4) {
+      // v3 → v4: появились уровни (круги). Мир, пройденный до праздника, переходит на уровень 2,
+      // а пройденный первый уровень сохраняется в past — к нему можно вернуться на карте.
+      if (d.worlds && typeof d.worlds === 'object') {
+        for (const id of Object.keys(d.worlds)) {
+          const w = d.worlds[id];
+          if (!w || typeof w !== 'object') continue;
+          if (!w.past || typeof w.past !== 'object') w.past = {};
+          const r = typeof w.round === 'number' && w.round >= 1 ? Math.floor(w.round) : 1;
+          w.round = r;
+          if (w.bonusGiven) {
+            w.past[String(r)] = { done: Array.isArray(w.done) ? w.done.slice() : [], best: Object.assign({}, w.best || {}), bonusGiven: true, finished: true };
+            w.round = r + 1;
+            w.rounds = Math.max(w.rounds || 0, r);
+            w.done = [];
+            w.best = {};
+            w.bonusGiven = false;
+            w.finished = false;
+          }
         }
       }
     }
@@ -160,6 +188,33 @@
   S.world = function (id) {
     if (!S.data.worlds[id]) S.data.worlds[id] = worldDefaults();
     return S.data.worlds[id];
+  };
+
+  // Прогресс конкретного уровня мира: текущий — прямо в мире, прошлые — в past
+  S.roundProg = function (id, round) {
+    const w = S.world(id);
+    const cur = w.round || 1;
+    if (!round || round >= cur) return w;
+    if (!w.past || typeof w.past !== 'object') w.past = {};
+    const key = String(round);
+    if (!w.past[key]) w.past[key] = { done: [], best: {}, bonusGiven: true, finished: true };
+    return w.past[key];
+  };
+
+  // Праздник пройден — открываем следующий уровень
+  S.advanceRound = function (id) {
+    const w = S.world(id);
+    const cur = w.round || 1;
+    if (!w.past || typeof w.past !== 'object') w.past = {};
+    w.past[String(cur)] = { done: w.done.slice(), best: Object.assign({}, w.best), bonusGiven: true, finished: true };
+    w.round = cur + 1;
+    w.rounds = Math.max(w.rounds || 0, cur);
+    w.done = [];
+    w.best = {};
+    w.bonusGiven = false;
+    w.finished = false;
+    S.save();
+    return w.round;
   };
 
   // Попросим браузер не удалять данные (если умеет)

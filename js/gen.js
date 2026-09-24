@@ -21,8 +21,8 @@
       rise: U.lerp(100, 124, k), // подъём одного прыжка
       gap: U.lerp(70, 130, k), // промежуток между площадками
       platW: U.lerp(210, 160, k), // ширина площадок
-      features: Math.min(3 + Math.floor((r - 1) * 0.8), 7),
-      storeys: Math.min(3 + Math.floor((r - 1) / 2), 6),
+      features: Math.min(3 + (r - 1), 7), // сколько фигур в «широкой» сцене
+      storeys: Math.min(3 + Math.floor(r / 2), 6), // сколько этажей в «высокой»
       movers: r === 1 ? 0.3 : Math.min(0.9, 0.45 + 0.1 * (r - 2)),
       coins: 1 + 0.12 * Math.min(r - 1, 6),
     };
@@ -82,6 +82,7 @@
   BP.coinsOn = function (p, n, margin) {
     margin = margin == null ? 36 : margin;
     const span = p.w - margin * 2;
+    n = Math.round(n * this.d.coins);
     n = Math.min(n, Math.floor(span / 52) + 1);
     for (let k = 0; k < n; k++) {
       const x = n === 1 ? p.x + p.w / 2 : p.x + margin + (span * k) / (n - 1);
@@ -93,7 +94,7 @@
   };
   // ряд монеток над землёй/полом
   BP.coinRow = function (x0, x1, y, step) {
-    step = step || 64;
+    step = (step || 64) / Math.sqrt(this.d.coins);
     const n = Math.max(1, Math.floor((x1 - x0) / step));
     for (let k = 0; k <= n; k++) this.coin(U.lerp(x0, x1, n ? k / n : 0.5), y - 50);
   };

@@ -993,10 +993,9 @@
       if (!D.worldById[world] || !Wd().isOpen(world)) world = 'magic';
       this.world = world;
       VW.lastWorld = world;
-      this.round = Wd().round(world);
-      this.scenes = Wd().scenes(world, this.round);
-      this.nodes = Wd().mapNodes(world, this.round, this.scenes.length);
+      this.cur = Wd().round(world);
       this.wdef = D.worldById[world];
+      this.setRound(p.round && p.round >= 1 && p.round <= this.cur ? p.round : this.cur, true);
       A.music('menu');
       const next = this.nextIndex();
       this.heroNode = next;
@@ -1015,17 +1014,34 @@
         }, 500);
       }
     },
+    // Какой уровень показываем на карте (можно вернуться к пройденным)
+    setRound(r, silent) {
+      this.round = r;
+      this.scenes = Wd().scenes(this.world, r);
+      this.nodes = Wd().mapNodes(this.world, r, this.scenes.length);
+      if (!silent) {
+        this.intro = null;
+        this.walk = null;
+        this.popNode = null;
+        this.heroNode = this.nextIndex();
+        A.sfx('whoosh');
+        V.say('Уровень ' + r + (r < this.cur ? '. Его ты уже прошла!' : '!'));
+      }
+    },
+    isDone(i) {
+      if (this.round < this.cur) return true;
+      const prog = S.roundProg(this.world, this.round);
+      return prog.done.indexOf(this.scenes[i].id) >= 0;
+    },
     nextIndex() {
-      const prog = S.world(this.world);
-      for (let i = 0; i < this.scenes.length; i++) if (prog.done.indexOf(this.scenes[i].id) < 0) return i;
+      for (let i = 0; i < this.scenes.length; i++) if (!this.isDone(i)) return i;
       return this.scenes.length; // всё пройдено — праздник
     },
     isOpen(i) {
-      const prog = S.world(this.world);
       const sc = this.scenes;
       if (i === 0) return true;
-      if (i >= sc.length) return sc.every((s) => prog.done.indexOf(s.id) >= 0);
-      return prog.done.indexOf(sc[i - 1].id) >= 0 || prog.done.indexOf(sc[i].id) >= 0;
+      if (i >= sc.length) return sc.every((s, k) => this.isDone(k));
+      return this.isDone(i - 1) || this.isDone(i);
     },
     update(dt) {
       this.t += dt;
@@ -1093,7 +1109,6 @@
     draw(ctx, W, H) {
       const t = this.t;
       VW.Maps.paint(ctx, W, H, t, this.world, this.round);
-      const prog = S.world(this.world);
       const n = this.scenes.length;
       const pc = VW.Maps.pathColors[this.world] || ['#E9C98F', '#F7E2B5'];
       const wc = this.wdef.color;
@@ -1126,7 +1141,7 @@
         const open = this.isOpen(i);
         const isHall = i === n;
         const sc = this.scenes[i];
-        const done = !isHall && prog.done.indexOf(sc.id) >= 0;
+        const done = !isHall && this.isDone(i);
         const r = isHall ? 62 : 52;
         const pressed = UI.btnC('node' + i, x, y, r + 6, () => this.tapNode(i));
         const pulse = i === next && open ? 1 + 0.06 * Math.sin(t * 5) : 1;
@@ -1198,10 +1213,14 @@
       G.panel(ctx, W / 2 - 230, 12, 460, 70, { r: 35, fill: 'rgba(255,255,255,0.92)', stroke: wc, lw: 4, shadowY: 5 });
       I.drawWorldIcon(ctx, this.wdef.icon, W / 2 - 180, 47, 24, t);
       G.text(ctx, title, W / 2 + 20, 48, tfs, U.shade(wc, -0.5), { weight: 900, maxW: 330 });
-      // уровень (круг)
-      const lx = W / 2, ly = 100;
-      G.panel(ctx, lx - 78, ly - 16, 156, 34, { r: 17, fill: wc, stroke: '#fff', lw: 3, shadowY: 3 });
-      G.text(ctx, 'Уровень ' + this.round, lx, ly + 1, 20, '#fff', { weight: 900 });
+      // уровень (круг) и стрелки к другим уровням
+      const lx = W / 2, ly = 104;
+      G.panel(ctx, lx - 82, ly - 19, 164, 40, { r: 20, fill: wc, stroke: '#fff', lw: 3, shadowY: 3 });
+      G.text(ctx, 'Уровень ' + this.round, lx, ly + 1, 23, '#fff', { weight: 900 });
+      if (this.cur > 1 && !this.walk) {
+        if (this.round > 1) roundBtn(ctx, 'roundPrev', lx - 122, ly, 26, U.shade(wc, -0.15), 'left', () => this.setRound(this.round - 1), 0.5);
+        if (this.round < this.cur) roundBtn(ctx, 'roundNext', lx + 122, ly, 26, U.shade(wc, -0.15), 'right', () => this.setRound(this.round + 1), 0.5);
+      }
       starCounter(ctx);
       roundBtn(ctx, 'back', W - 52, 50, 36, '#8C7BD8', 'back', () => this.back());
 
