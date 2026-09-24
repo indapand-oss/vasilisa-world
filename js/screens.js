@@ -225,8 +225,66 @@
   VW.drawTitle = drawTitle;
 
   // =========================================================
+  // Прокручиваемый список (лента слева и справа)
+  // =========================================================
+  // o: {id, x, y, w, h, items, itemH, gap, st, title, draw(it, x, y, w, h, pressed, i), tap(it, i)}
+  function scrollList(ctx, o) {
+    const st = o.st;
+    st.axis = 'y';
+    const titleH = o.title ? 30 : 0;
+    const arrowH = 38;
+    const top = o.y + titleH;
+    const vy = top + arrowH, vh = o.y + o.h - arrowH - vy;
+    const step = o.itemH + o.gap;
+    const contentH = Math.max(0, o.items.length * step - o.gap);
+    st.max = Math.max(0, contentH - vh);
+    if (!st.dragging) st.pos = U.clamp(st.pos, -60, st.max + 60);
+    G.panel(ctx, o.x, o.y, o.w, o.h, { r: 24, fill: 'rgba(255,255,255,0.88)', stroke: o.color || '#B9A7F0', lw: 3, shadowY: 4 });
+    if (o.title) {
+      let fsz = 17;
+      while (fsz > 11 && G.measure(ctx, o.title, fsz, 900) > o.w - 16) fsz--;
+      G.text(ctx, o.title, o.x + o.w / 2, o.y + 18, fsz, '#4A3A7A', { weight: 900 });
+    }
+    const canUp = st.pos > 1, canDn = st.pos < st.max - 1;
+    const pu = UI.btn(o.id + 'up', o.x + 8, top + 4, o.w - 16, arrowH - 8, () => {
+      st.target = U.clamp(Math.round(st.pos / step - 1) * step, 0, st.max);
+      A.sfx('tap');
+    });
+    G.icon(ctx, 'up', o.x + o.w / 2, top + arrowH / 2 + (pu ? 2 : 0), 15, canUp ? '#7C5CE0' : '#D8D0F0', false);
+    const pd = UI.btn(o.id + 'dn', o.x + 8, o.y + o.h - arrowH + 4, o.w - 16, arrowH - 8, () => {
+      st.target = U.clamp(Math.round(st.pos / step + 1) * step, 0, st.max);
+      A.sfx('tap');
+    });
+    G.icon(ctx, 'down', o.x + o.w / 2, o.y + o.h - arrowH / 2 + (pd ? 2 : 0), 15, canDn ? '#7C5CE0' : '#D8D0F0', false);
+    // фон списка тоже можно тянуть пальцем
+    UI.btn(o.id + 'bg', o.x, vy, o.w, vh, null, { scroll: st, pad: 0 });
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(o.x + 2, vy, o.w - 4, vh);
+    ctx.clip();
+    o.items.forEach((it, i) => {
+      const iy = vy + i * step - st.pos;
+      if (iy + o.itemH < vy || iy > vy + vh) return;
+      const hy0 = Math.max(iy, vy), hy1 = Math.min(iy + o.itemH, vy + vh);
+      const pressed = hy1 - hy0 > 10 ? UI.btn(o.id + ':' + i, o.x + 8, hy0, o.w - 16, hy1 - hy0, () => o.tap(it, i), { scroll: st, pad: 0 }) : false;
+      o.draw(it, o.x + 8, iy, o.w - 16, o.itemH, pressed, i);
+    });
+    ctx.restore();
+    if (st.max > 0) {
+      const bh = Math.max(24, (vh * vh) / contentH);
+      const by = vy + (vh - bh) * U.clamp(st.pos / st.max, 0, 1);
+      G.rr(ctx, o.x + o.w - 7, by, 4, bh, 2);
+      ctx.fillStyle = 'rgba(120,90,200,0.35)';
+      ctx.fill();
+    }
+  }
+  VW.scrollList = scrollList;
+
+  // =========================================================
   // Меню персонажа (эскиз 1)
   // =========================================================
+  const PETS_CAT = { id: 'pets', name: 'Питомцы', pets: true };
+
   const CH = (VW.screens.character = {
     get subtitlePos() {
       return this.modal ? 'bottom' : 126;
@@ -234,12 +292,14 @@
     enter() {
       this.t = 0;
       this.fx = new VW.Particles();
-      this.skinOff = this.skinOff || 0;
-      this.petOff = this.petOff || 0;
+      this.leftSt = this.leftSt || { pos: 0, vel: 0 };
+      this.rightSt = this.rightSt || { pos: 0, vel: 0 };
       this.setOff = this.setOff || 0;
       this.modal = null;
       this.cheer = 0;
       this.shake = {};
+      const hero = Hero.heroOf(S.data.look);
+      if (!this.cat) this.cat = hero ? hero.set : 'wizard';
       A.music('menu');
       const first = !S.data.seenCharacter;
       S.data.seenCharacter = true;
@@ -251,6 +311,8 @@
     update(dt) {
       this.t += dt;
       this.fx.update(dt);
+      UI.stepScroll(this.leftSt, dt);
+      UI.stepScroll(this.rightSt, dt);
       this.cheer = Math.max(0, this.cheer - dt);
       for (const k of Object.keys(this.shake)) {
         this.shake[k] -= dt;
@@ -270,19 +332,23 @@
       A.sfx('magic');
       VW.go('worlds');
     },
-    lookWith(kind, id) {
+    // Как будет выглядеть герой, если выбрать вещь (для примерки в окошке покупки)
+    lookWith(kind, id, heroId) {
       const L = Object.assign({}, S.data.look);
       if (kind === 'color') L.color = id;
       if (kind === 'skin') {
         const it = S.item('skin', id);
         L[it.slot] = id;
-        L.set = null;
       }
       if (kind === 'pet') L.pet = id;
-      if (kind === 'set') L.set = id;
+      if (kind === 'set') {
+        L.hero = heroId || (D.heroesOf(id)[0] || {}).id || null;
+        L.head = null;
+        L.body = null;
+      }
       return L;
     },
-    // Нажатие на вещь
+    // Нажатие на цвет или наряд
     choose(kind, id) {
       const it = S.item(kind, id);
       if (!it) return;
@@ -293,36 +359,74 @@
       this.apply(kind, id);
       V.say(it.name + '!');
     },
-    // Надеть/снять вещь
+    // Надеть/снять вещь (наряды надеваются и поверх героя)
     apply(kind, id) {
       const it = S.item(kind, id);
       const L = S.data.look;
       if (kind === 'color') {
         L.color = id;
       } else if (kind === 'skin') {
-        if (L[it.slot] === id && !L.set) L[it.slot] = null;
-        else {
-          L[it.slot] = id;
-          L.set = null;
-        }
+        L[it.slot] = L[it.slot] === id ? null : id;
       } else if (kind === 'pet') {
         L.pet = L.pet === id ? null : id;
-      } else if (kind === 'set') {
-        L.set = L.set === id ? null : id;
       }
+      this.feedback();
+    },
+    feedback() {
       S.save();
       A.sfx('select');
       this.cheer = 0.8;
       this.fx.burst('spark', this.heroX || VW.W / 2, (this.heroY || VW.H / 2) - 150, 10, { speed: 260, size: 12, color: '#FFF3A0' });
     },
-    openBuy(kind, id) {
+    // Нажатие на героя в списке справа
+    chooseHero(h) {
+      if (!S.owns('set', h.set)) {
+        this.openBuy('set', h.set, h.id);
+        return;
+      }
+      const L = S.data.look;
+      if (L.hero === h.id) {
+        L.hero = null;
+        this.feedback();
+        V.say('Снова обычный человечек!');
+        return;
+      }
+      L.hero = h.id;
+      L.head = null;
+      L.body = null;
+      this.feedback();
+      V.say(h.name + '!');
+    },
+    choosePet(p) {
+      if (!S.owns('pet', p.id)) {
+        this.openBuy('pet', p.id);
+        return;
+      }
+      this.apply('pet', p.id);
+      V.say(p.name + '!');
+    },
+    // Нажатие на категорию внизу — справа показываем её героев
+    chooseCat(c) {
+      if (this.cat !== c.id) {
+        this.cat = c.id;
+        this.rightSt.pos = 0;
+        this.rightSt.vel = 0;
+        this.rightSt.target = null;
+      }
+      A.sfx('tap');
+      if (c.pets) V.say('Питомцы! Выбирай друга справа.');
+      else if (!S.owns('set', c.id)) V.say(c.name + '! Этот набор стоит десять звёздочек.');
+      else V.say(c.name + '! Выбирай героя справа.');
+    },
+    openBuy(kind, id, heroId) {
       const it = S.item(kind, id);
       const can = S.data.stars >= it.price;
       A.sfx(can ? 'tap' : 'locked');
-      this.shake[kind + id] = 0.4;
-      this.modal = { kind: kind, id: id, item: it, t: 0, can: can };
+      this.shake[kind + (heroId || id)] = 0.4;
+      this.modal = { kind: kind, id: id, hero: heroId || null, item: it, t: 0, can: can };
       this.modal.primary = can ? () => this.buy() : () => this.closeModal();
-      V.say(it.name + '! ' + (can ? 'Купить за звёздочки?' : D.say.needStars));
+      const name = kind === 'set' ? 'Набор «' + it.name + '»' : it.name;
+      V.say(name + '! ' + (can ? 'Купить за звёздочки?' : D.say.needStars));
     },
     closeModal() {
       this.modal = null;
@@ -334,7 +438,13 @@
       if (S.buy(m.kind, m.id)) {
         VW.starPulse = 0.6;
         this.modal = null;
-        this.apply(m.kind, m.id);
+        if (m.kind === 'set') {
+          const L = S.data.look;
+          L.hero = m.hero || (D.heroesOf(m.id)[0] || {}).id || null;
+          L.head = null;
+          L.body = null;
+          this.feedback();
+        } else this.apply(m.kind, m.id);
         A.sfx('buy');
         V.say(D.say.bought);
         this.fx.burst('confetti', VW.W / 2, VW.H * 0.35, 60, { speed: 520, g: 500 });
@@ -346,7 +456,6 @@
       const t = this.t;
       G.notebook(ctx, W, H);
       const look = S.data.look;
-      const blocked = !!this.modal;
 
       // --- верх: звёзды, палитра, кнопка «дальше» ---
       const cw = starCounter(ctx);
@@ -360,7 +469,6 @@
       const sp = Math.min(80, (px1 - px0) / n);
       const pr = sp * 0.4;
       const py = 14 + 34;
-      // лента палитры
       G.panel(ctx, px0 - 8, 10, sp * n + 16, 84, { r: 40, fill: 'rgba(255,255,255,0.85)', stroke: '#F2C37A', lw: 3, shadowY: 4 });
       D.colors.forEach((c, i) => {
         const cx = px0 + sp * (i + 0.5), cy = py + 4;
@@ -389,17 +497,63 @@
 
       // --- середина ---
       const midTop = 118, midBot = H - 164;
-      const stripW = Math.min(170, W * 0.15);
+      const stripW = Math.min(172, W * 0.155);
 
-      // левая лента: наряды
-      this.drawStrip(ctx, 'skin', D.skins, 16, midTop, stripW, midBot - midTop, 'skinOff', (it, cx, cy, s) => {
-        Hero.drawSkinIcon(ctx, it.id, cx, cy, s * 1.9, t);
-      }, (it) => look[it.slot] === it.id && !look.set);
+      // левая лента: наряды (надеваются и на героя)
+      scrollList(ctx, {
+        id: 'skins', x: 16, y: midTop, w: stripW, h: midBot - midTop, items: D.skins, itemH: 104, gap: 10, st: this.leftSt,
+        draw: (it, x, y, w, h, pressed) => {
+          const owned = S.owns('skin', it.id);
+          const on = look[it.slot] === it.id;
+          const sh = this.shake['skin' + it.id] ? Math.sin(this.shake['skin' + it.id] * 50) * 5 : 0;
+          const oy = pressed ? 3 : 0;
+          G.panel(ctx, x + sh, y + oy, w, h, { r: 18, fill: on ? '#FFF4C2' : '#F6F2FF', stroke: on ? '#F2A900' : '#CFC4F2', lw: on ? 4 : 2.5, shadowY: pressed ? 1 : 4 });
+          ctx.save();
+          G.rr(ctx, x + sh + 2, y + oy + 2, w - 4, h - 4, 16);
+          ctx.clip();
+          Hero.drawSkinIcon(ctx, it.id, x + sh + w / 2, y + oy + h / 2, 1.9, t);
+          ctx.restore();
+          if (!owned) {
+            G.lockBadge(ctx, x + sh + w - 18, y + oy + 18, 14);
+            G.priceTag(ctx, x + sh + w / 2, y + oy + h - 16, it.price, 24, S.data.stars >= it.price);
+          } else if (on) G.checkBadge(ctx, x + sh + w - 18, y + oy + 18, 14);
+        },
+        tap: (it) => this.choose('skin', it.id),
+      });
 
-      // правая лента: питомцы
-      this.drawStrip(ctx, 'pet', D.pets, W - 16 - stripW, midTop, stripW, midBot - midTop, 'petOff', (it, cx, cy, s) => {
-        VW.Pets.draw(ctx, it.id, cx, cy + s * 26, { t: t, scale: s * 1.35, facing: -1 });
-      }, (it) => look.pet === it.id);
+      // правая лента: герои выбранной категории (или питомцы)
+      const cat = this.cat === 'pets' ? PETS_CAT : S.item('set', this.cat) || D.sets[0];
+      const catOwned = cat.pets || S.owns('set', cat.id);
+      const rightItems = cat.pets ? D.pets : D.heroesOf(cat.id);
+      scrollList(ctx, {
+        id: 'list', x: W - 16 - stripW, y: midTop, w: stripW, h: midBot - midTop, items: rightItems, itemH: 118, gap: 10, st: this.rightSt,
+        title: cat.name, color: '#9ED7F2',
+        draw: (it, x, y, w, h, pressed, i) => {
+          const isPet = !!cat.pets;
+          const owned = isPet ? S.owns('pet', it.id) : catOwned;
+          const on = isPet ? look.pet === it.id : look.hero === it.id;
+          const key = (isPet ? 'pet' : 'set') + it.id;
+          const sh = this.shake[key] ? Math.sin(this.shake[key] * 50) * 5 : 0;
+          const oy = pressed ? 3 : 0;
+          G.panel(ctx, x + sh, y + oy, w, h, { r: 18, fill: on ? '#FFF4C2' : '#F2FAFF', stroke: on ? '#F2A900' : '#BFE3F5', lw: on ? 4 : 2.5, shadowY: pressed ? 1 : 4 });
+          ctx.save();
+          G.rr(ctx, x + sh + 2, y + oy + 2, w - 4, h - 4, 16);
+          ctx.clip();
+          if (isPet) VW.Pets.draw(ctx, it.id, x + sh + w / 2, y + oy + h - 30 - (VW.Pets.flies(it.id) ? 6 : 0), { t: t, scale: 1.25, facing: -1 });
+          else {
+            const mini = { color: look.color, hero: it.id };
+            Hero.draw(ctx, x + sh + w / 2, y + oy + h - 25, mini, { state: on ? 'cheer' : 'idle', t: t + i * 0.7, facing: 1 }, 0.66);
+          }
+          ctx.restore();
+          const lines = G.wrap(ctx, it.name, 14, w - 12, 800);
+          lines.slice(0, 2).forEach((l, k) => G.text(ctx, l, x + sh + w / 2, y + oy + h - 16 + (k - (lines.length > 1 ? 0.5 : 0)) * 14 - (lines.length > 1 ? 4 : 0), 14, '#3B4A6B', { weight: 800, stroke: 'rgba(255,255,255,0.9)', lw: 4 }));
+          if (!owned) {
+            G.lockBadge(ctx, x + sh + w - 17, y + oy + 17, 13);
+            if (isPet) G.priceTag(ctx, x + sh + 30, y + oy + 18, it.price, 22, S.data.stars >= it.price);
+          } else if (on) G.checkBadge(ctx, x + sh + w - 17, y + oy + 17, 13);
+        },
+        tap: (it) => (cat.pets ? this.choosePet(it) : this.chooseHero(it)),
+      });
 
       // сцена с героем
       const sx0 = 16 + stripW + 18, sx1 = W - 16 - stripW - 18;
@@ -413,8 +567,8 @@
       ctx.lineWidth = 3;
       ctx.strokeStyle = '#F09AC4';
       ctx.stroke();
-      const showLook = this.modal ? this.lookWith(this.modal.kind, this.modal.id) : look;
-      const hs = Math.min(2.9, (floorY - midTop - 40) / 110);
+      const showLook = this.modal ? this.lookWith(this.modal.kind, this.modal.id, this.modal.hero) : look;
+      const hs = Math.min(2.6, (floorY - midTop - 60) / 118);
       this.heroX = scx - (showLook.pet ? 40 : 0);
       this.heroY = floorY;
       const heroTap = UI.btn('hero', this.heroX - 70, floorY - hs * 115, 140, hs * 115, () => {
@@ -428,8 +582,10 @@
         const fly = VW.Pets.flies(showLook.pet);
         VW.Pets.draw(ctx, showLook.pet, this.heroX + hs * 58, floorY - (fly ? hs * 80 : 0), { t: t, scale: hs * 0.85, facing: -1 });
       }
+      const heroNow = Hero.heroOf(showLook);
+      if (heroNow) G.text(ctx, heroNow.name, scx, midTop + 26, 22, '#6A4A2A', { weight: 900, stroke: '#FFF8E6', lw: 6, maxW: sx1 - sx0 - 30 });
 
-      // --- низ: наборы персонажей ---
+      // --- низ: категории героев ---
       this.drawSets(ctx, 16, H - 150, W - 32, 136);
 
       this.fx.draw(ctx);
@@ -437,67 +593,17 @@
       if (this.modal) this.drawModal(ctx, W, H);
     },
 
-    drawStrip(ctx, kind, items, x, y, w, h, offKey, drawItem, isOn) {
-      const t = this.t;
-      G.panel(ctx, x, y, w, h, { r: 24, fill: 'rgba(255,255,255,0.88)', stroke: '#B9A7F0', lw: 3, shadowY: 4 });
-      const arrowH = 46;
-      const vis = 3;
-      const maxOff = Math.max(0, items.length - vis);
-      this[offKey] = U.clamp(this[offKey], 0, maxOff);
-      const off = this[offKey];
-      // стрелки
-      const upOn = off > 0, dnOn = off < maxOff;
-      const pu = UI.btn(kind + 'up', x + 8, y + 6, w - 16, arrowH - 8, () => {
-        if (this[offKey] > 0) {
-          this[offKey]--;
-          A.sfx('tap');
-        }
-      });
-      G.icon(ctx, 'up', x + w / 2, y + arrowH / 2 + 2 + (pu ? 2 : 0), 16, upOn ? '#7C5CE0' : '#D8D0F0', false);
-      const pd = UI.btn(kind + 'dn', x + 8, y + h - arrowH + 2, w - 16, arrowH - 8, () => {
-        if (this[offKey] < maxOff) {
-          this[offKey]++;
-          A.sfx('tap');
-        }
-      });
-      G.icon(ctx, 'down', x + w / 2, y + h - arrowH / 2 - 2 + (pd ? 2 : 0), 16, dnOn ? '#7C5CE0' : '#D8D0F0', false);
-      const gap = 10;
-      const cardH = (h - arrowH * 2 - gap * (vis - 1)) / vis;
-      for (let i = 0; i < vis; i++) {
-        const it = items[off + i];
-        if (!it) continue;
-        const cx = x + 10, cy = y + arrowH + i * (cardH + gap), cwid = w - 20;
-        const owned = S.owns(kind, it.id);
-        const on = isOn(it);
-        const pressed = UI.btn(kind + it.id, cx, cy, cwid, cardH, () => this.choose(kind, it.id));
-        const sh = this.shake[kind + it.id] ? Math.sin(this.shake[kind + it.id] * 50) * 5 : 0;
-        const oy = pressed ? 3 : 0;
-        G.panel(ctx, cx + sh, cy + oy, cwid, cardH, { r: 18, fill: on ? '#FFF4C2' : '#F6F2FF', stroke: on ? '#F2A900' : '#CFC4F2', lw: on ? 4 : 2.5, shadowY: pressed ? 1 : 4 });
-        ctx.save();
-        G.rr(ctx, cx + sh + 2, cy + oy + 2, cwid - 4, cardH - 4, 16);
-        ctx.clip();
-        drawItem(it, cx + sh + cwid / 2, cy + oy + cardH / 2, Math.min(1.2, cardH / 100));
-        ctx.restore();
-        if (!owned) {
-          G.lockBadge(ctx, cx + sh + cwid - 18, cy + oy + 18, 14);
-          G.priceTag(ctx, cx + sh + cwid / 2, cy + oy + cardH - 16, it.price, 24, S.data.stars >= it.price);
-        } else if (on) {
-          G.checkBadge(ctx, cx + sh + cwid - 18, cy + oy + 18, 14);
-        }
-      }
-    },
-
     drawSets(ctx, x, y, w, h) {
       const t = this.t;
-      const items = D.sets;
+      const items = D.sets.concat([PETS_CAT]);
       G.panel(ctx, x, y, w, h, { r: 24, fill: 'rgba(255,255,255,0.88)', stroke: '#9ED7F2', lw: 3, shadowY: 4 });
-      const gap = 10;
-      const minW = 132;
+      const gap = 8;
+      const minW = 116;
       let fit = Math.floor((w - 16 + gap) / (minW + gap));
       let arrows = fit < items.length;
       let ax = 0;
       if (arrows) {
-        ax = 50;
+        ax = 46;
         fit = Math.max(1, Math.floor((w - 16 - ax * 2 + gap) / (minW + gap)));
       }
       fit = Math.min(fit, items.length);
@@ -512,40 +618,54 @@
           }
         });
         G.icon(ctx, 'left', x + ax / 2 + 3 + (pl ? 2 : 0), y + h / 2, 16, this.setOff > 0 ? '#2F8CC8' : '#CFE6F2', false);
-        const pr = UI.btn('setR', x + w - ax + 2, y + 8, ax - 8, h - 16, () => {
+        const prr = UI.btn('setR', x + w - ax + 2, y + 8, ax - 8, h - 16, () => {
           if (this.setOff < maxOff) {
             this.setOff++;
             A.sfx('tap');
           }
         });
-        G.icon(ctx, 'right', x + w - ax / 2 - 3 + (pr ? 2 : 0), y + h / 2, 16, this.setOff < maxOff ? '#2F8CC8' : '#CFE6F2', false);
+        G.icon(ctx, 'right', x + w - ax / 2 - 3 + (prr ? 2 : 0), y + h / 2, 16, this.setOff < maxOff ? '#2F8CC8' : '#CFE6F2', false);
       }
       const look = S.data.look;
+      const curHero = Hero.heroOf(look);
       for (let i = 0; i < fit; i++) {
         const it = items[this.setOff + i];
         if (!it) continue;
         const cx = x + 8 + ax + i * (cardW + gap), cy = y + 8, ch = h - 16;
-        const owned = S.owns('set', it.id);
-        const on = look.set === it.id;
-        const pressed = UI.btn('set' + it.id, cx, cy, cardW, ch, () => this.choose('set', it.id));
-        const sh = this.shake['set' + it.id] ? Math.sin(this.shake['set' + it.id] * 50) * 5 : 0;
+        const owned = it.pets || S.owns('set', it.id);
+        const active = this.cat === it.id;
+        const wearing = it.pets ? !!look.pet : !!(curHero && curHero.set === it.id);
+        const pressed = UI.btn('cat' + it.id, cx, cy, cardW, ch, () => this.chooseCat(it));
         const oy = pressed ? 3 : 0;
-        G.panel(ctx, cx + sh, cy + oy, cardW, ch, { r: 16, fill: on ? '#FFF4C2' : '#F2FAFF', stroke: on ? '#F2A900' : '#BFE3F5', lw: on ? 4 : 2.5, shadowY: pressed ? 1 : 3 });
-        let nfs = 18;
-        while (nfs > 12 && G.measure(ctx, it.name, nfs, 800) > cardW - 14) nfs -= 1;
-        G.text(ctx, it.name, cx + sh + cardW / 2, cy + oy + 15, nfs, '#3B4A6B', { weight: 800, maxW: cardW - 10 });
+        G.panel(ctx, cx, cy + oy, cardW, ch, { r: 16, fill: active ? '#E6F6FF' : '#F7FBFF', stroke: active ? '#2F8CC8' : '#BFE3F5', lw: active ? 5 : 2.5, shadowY: pressed ? 1 : 3 });
+        let nfs = 17;
+        while (nfs > 11 && G.measure(ctx, it.name, nfs, 800) > cardW - 12) nfs -= 1;
+        G.text(ctx, it.name, cx + cardW / 2, cy + oy + 15, nfs, '#3B4A6B', { weight: 800, maxW: cardW - 8 });
         ctx.save();
-        G.rr(ctx, cx + sh + 2, cy + oy + 2, cardW - 4, ch - 4, 14);
+        G.rr(ctx, cx + 2, cy + oy + 2, cardW - 4, ch - 4, 14);
         ctx.clip();
-        const mini = Object.assign({}, look, { set: it.id, head: null, body: null });
-        const hy = cy + oy + ch - (owned ? 8 : 28);
-        Hero.draw(ctx, cx + sh + cardW / 2, hy, mini, { state: on ? 'cheer' : 'idle', t: t + i, facing: 1 }, 0.58);
+        if (it.pets) {
+          const pid = look.pet || 'cat';
+          VW.Pets.draw(ctx, pid, cx + cardW / 2, cy + oy + ch - 24 - (VW.Pets.flies(pid) ? 8 : 0), { t: t, scale: 1.05, facing: -1 });
+        } else {
+          const rep = wearing ? curHero : D.heroesOf(it.id)[0];
+          const mini = { color: look.color, hero: rep ? rep.id : null };
+          Hero.draw(ctx, cx + cardW / 2, cy + oy + ch - (owned ? 8 : 26), mini, { state: active ? 'wave' : 'idle', t: t + i, facing: 1 }, 0.5);
+        }
         ctx.restore();
         if (!owned) {
-          G.lockBadge(ctx, cx + sh + cardW - 16, cy + oy + ch - 50, 13);
-          G.priceTag(ctx, cx + sh + cardW / 2, cy + oy + ch - 16, it.price, 24, S.data.stars >= it.price);
-        } else if (on) {
-          G.checkBadge(ctx, cx + sh + cardW - 16, cy + oy + ch - 18, 13);
+          G.lockBadge(ctx, cx + cardW - 16, cy + oy + ch - 48, 13);
+          G.priceTag(ctx, cx + cardW / 2, cy + oy + ch - 15, it.price, 24, S.data.stars >= it.price);
+        } else if (wearing) G.checkBadge(ctx, cx + cardW - 16, cy + oy + ch - 18, 13);
+        if (active) {
+          // стрелочка: «герои этой категории — справа»
+          ctx.beginPath();
+          ctx.moveTo(cx + cardW / 2 - 9, cy + oy - 1);
+          ctx.lineTo(cx + cardW / 2, cy + oy - 11);
+          ctx.lineTo(cx + cardW / 2 + 9, cy + oy - 1);
+          ctx.closePath();
+          ctx.fillStyle = '#2F8CC8';
+          ctx.fill();
         }
       }
     },
@@ -556,7 +676,7 @@
       UI.blocker(() => this.closeModal());
       ctx.fillStyle = 'rgba(30,15,70,' + 0.45 * Math.min(1, m.t / 0.2) + ')';
       ctx.fillRect(0, 0, W, H);
-      const pw = Math.min(640, W - 60), ph = 430;
+      const pw = Math.min(660, W - 60), ph = 440;
       const px = W / 2 - pw / 2, py = H / 2 - ph / 2;
       ctx.save();
       ctx.translate(W / 2, H / 2);
@@ -564,21 +684,29 @@
       ctx.translate(-W / 2, -H / 2);
       UI.btn('modalPanel', px, py, pw, ph, null);
       G.panel(ctx, px, py, pw, ph, { r: 34, fill: '#FFFDF4', stroke: '#9B7BFF', lw: 5, shadowY: 10 });
-      // превью
-      const L = this.lookWith(m.kind, m.id);
-      const pvx = px + pw * 0.3, pvy = py + ph - 70;
+      // примерка
+      const L = this.lookWith(m.kind, m.id, m.hero);
+      const pvx = px + pw * 0.28, pvy = py + ph - 60;
       G.glow(ctx, pvx, pvy - 120, 170, '#FFF1B0', 0.8);
-      if (m.kind === 'color') {
-        drawSwatch(ctx, m.item, pvx, py + 90, 48, this.t);
-      }
-      Hero.draw(ctx, pvx - (L.pet ? 30 : 0), pvy, L, { state: 'wave', t: this.t, facing: 1 }, m.kind === 'color' ? 1.7 : 2.2);
+      if (m.kind === 'color') drawSwatch(ctx, m.item, pvx, py + 90, 48, this.t);
+      Hero.draw(ctx, pvx - (L.pet ? 30 : 0), pvy, L, { state: 'wave', t: this.t, facing: 1 }, m.kind === 'color' ? 1.7 : 2.1);
       if (L.pet && m.kind === 'pet') VW.Pets.draw(ctx, L.pet, pvx + 90, pvy - (VW.Pets.flies(L.pet) ? 120 : 0), { t: this.t, scale: 2, facing: -1 });
       // справа: название, цена, прогресс
       const rx = px + pw * 0.66;
-      G.text(ctx, m.item.name, rx, py + 70, 36, '#3B2A6B', { weight: 900, maxW: pw * 0.6 });
-      G.priceTag(ctx, rx, py + 140, m.item.price, 54, m.can);
-      // полоска прогресса «сколько есть»
-      const bw = pw * 0.5, bx = rx - bw / 2, by = py + 196;
+      const title = m.kind === 'set' ? 'Набор «' + m.item.name + '»' : m.item.name;
+      let tfs = 34;
+      while (tfs > 20 && G.measure(ctx, title, tfs, 900) > pw * 0.6) tfs--;
+      G.text(ctx, title, rx, py + 58, tfs, '#3B2A6B', { weight: 900 });
+      if (m.kind === 'set') {
+        // все герои набора — маленькие, в ряд
+        const hs = D.heroesOf(m.id);
+        const gapx = Math.min(56, (pw * 0.6) / hs.length);
+        hs.forEach((h, i) => Hero.draw(ctx, rx - ((hs.length - 1) * gapx) / 2 + i * gapx, py + 150, { color: S.data.look.color, hero: h.id }, { state: 'idle', t: this.t + i, facing: 1 }, 0.46));
+      }
+      const tagY = m.kind === 'set' ? py + 196 : py + 140;
+      G.priceTag(ctx, rx, tagY, m.item.price, 50, m.can);
+      // полоска «сколько есть»
+      const bw = pw * 0.5, bx = rx - bw / 2, by = tagY + 44;
       const frac = U.clamp(S.data.stars / m.item.price, 0, 1);
       G.rr(ctx, bx, by, bw, 28, 14);
       ctx.fillStyle = '#EDE7FA';
@@ -593,17 +721,17 @@
       ctx.strokeStyle = '#B9A7F0';
       ctx.stroke();
       G.starIcon(ctx, bx + 16, by + 14, 11);
-      G.text(ctx, S.data.stars + ' / ' + m.item.price, rx + 8, by + 15, 18, '#3B2A6B', { weight: 900 });
+      G.text(ctx, Math.min(S.data.stars, 99999) + ' / ' + m.item.price, rx + 8, by + 15, 18, '#3B2A6B', { weight: 900 });
       // кнопки
       if (m.can) {
-        const p = UI.btn('buyYes', rx - 110, py + ph - 130, 220, 88, () => this.buy());
-        const oy = G.button3d(ctx, rx - 110, py + ph - 130, 220, 88, '#2FBF55', p, 30);
-        G.icon(ctx, 'check', rx - 40, py + ph - 86 + oy, 26, '#fff');
-        G.starIcon(ctx, rx + 34, py + ph - 88 + oy, 24);
+        const p = UI.btn('buyYes', rx - 110, py + ph - 116, 220, 84, () => this.buy());
+        const oy = G.button3d(ctx, rx - 110, py + ph - 116, 220, 84, '#2FBF55', p, 30);
+        G.icon(ctx, 'check', rx - 40, py + ph - 74 + oy, 26, '#fff');
+        G.starIcon(ctx, rx + 34, py + ph - 76 + oy, 24);
       } else {
-        const p = UI.btn('buyOk', rx - 90, py + ph - 130, 180, 88, () => this.closeModal());
-        const oy = G.button3d(ctx, rx - 90, py + ph - 130, 180, 88, '#FF9A3C', p, 30);
-        G.icon(ctx, 'check', rx, py + ph - 86 + oy, 28, '#fff');
+        const p = UI.btn('buyOk', rx - 90, py + ph - 116, 180, 84, () => this.closeModal());
+        const oy = G.button3d(ctx, rx - 90, py + ph - 116, 180, 84, '#FF9A3C', p, 30);
+        G.icon(ctx, 'check', rx, py + ph - 74 + oy, 28, '#fff');
       }
       roundBtn(ctx, 'buyNo', px + pw - 20, py + 20, 30, '#FF6B6B', 'close', () => this.closeModal(), 0.5);
       ctx.restore();

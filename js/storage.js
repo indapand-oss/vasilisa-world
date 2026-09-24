@@ -5,13 +5,15 @@
   const KEY = 'vasilisa-world-v1';
   const S = (VW.Store = {});
 
+  const VERSION = 2;
+
   S.defaults = function () {
     return {
-      v: 1,
+      v: VERSION,
       stars: 0, // текущий запас звёзд (тратится на наряды)
       earned: 0, // сколько всего заработано
       owned: [], // купленное: 'color:purple', 'skin:dress', 'pet:cat', 'set:fairy'
-      look: { color: 'brown', head: null, body: null, pet: null, set: null },
+      look: { color: 'brown', head: null, body: null, pet: null, hero: null },
       worlds: {},
       music: true,
       visits: 0,
@@ -50,7 +52,7 @@
     S.data = S.defaults();
     if (raw) {
       try {
-        S.data = merge(S.defaults(), JSON.parse(raw));
+        S.data = merge(S.defaults(), S.migrate(JSON.parse(raw)));
       } catch (e) {
         S.data = S.defaults();
       }
@@ -67,8 +69,26 @@
     if (L.head && (!findById(VW.Data.skins, L.head) || !S.owns('skin', L.head))) L.head = null;
     if (L.body && (!findById(VW.Data.skins, L.body) || !S.owns('skin', L.body))) L.body = null;
     if (L.pet && (!findById(VW.Data.pets, L.pet) || !S.owns('pet', L.pet))) L.pet = null;
-    if (L.set && (!findById(VW.Data.sets, L.set) || !S.owns('set', L.set))) L.set = null;
+    if (L.hero) {
+      const h = VW.Data.heroById[L.hero];
+      if (!h || !S.owns('set', h.set)) L.hero = null;
+    }
     return S.data;
+  };
+
+  // Перевод старых сохранений на новый формат — ничего из прогресса не теряется
+  S.migrate = function (d) {
+    if (!d || typeof d !== 'object') return d;
+    const v = typeof d.v === 'number' ? d.v : 1;
+    if (v < 2) {
+      // v1 → v2: вместо «костюма набора» (look.set) теперь выбирается герой набора (look.hero)
+      if (d.look && typeof d.look === 'object') {
+        if (d.look.set && !d.look.hero) d.look.hero = (VW.Data.heroForOldSet || {})[d.look.set] || null;
+        delete d.look.set;
+      }
+    }
+    d.v = VERSION;
+    return d;
   };
 
   function findById(list, id) {

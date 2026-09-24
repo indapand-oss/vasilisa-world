@@ -21,10 +21,38 @@
   };
 
   // Прямоугольная кнопка. Возвращает true, если сейчас нажата
+  // o.scroll — объект прокрутки {pos, vel, max, axis}: если палец потянули, кнопка не нажимается, а список едет
   UI.btn = function (id, x, y, w, h, onTap, o) {
     o = o || {};
-    UI.hits.push({ id: id, x: x, y: y, w: w, h: h, onTap: onTap, onDown: o.onDown, pad: o.pad == null ? 6 : o.pad });
+    UI.hits.push({ id: id, x: x, y: y, w: w, h: h, onTap: onTap, onDown: o.onDown, pad: o.pad == null ? 6 : o.pad, scroll: o.scroll || null });
     return UI.isPressed(id);
+  };
+
+  // Плавная прокрутка списков (инерция и «пружинка» у краёв)
+  UI.stepScroll = function (st, dt) {
+    if (!st || st.dragging) return;
+    const max = st.max || 0;
+    if (st.target != null) {
+      st.pos += (st.target - st.pos) * Math.min(1, dt * 12);
+      st.vel = 0;
+      if (Math.abs(st.target - st.pos) < 0.5) {
+        st.pos = st.target;
+        st.target = null;
+      }
+      return;
+    }
+    if (Math.abs(st.vel || 0) > 5) {
+      st.pos += st.vel * dt;
+      st.vel *= Math.exp(-dt * 5);
+    } else st.vel = 0;
+    if (st.pos < 0) {
+      st.pos += (0 - st.pos) * Math.min(1, dt * 14);
+      if (st.vel < 0) st.vel = 0;
+    }
+    if (st.pos > max) {
+      st.pos += (max - st.pos) * Math.min(1, dt * 14);
+      if (st.vel > 0) st.vel = 0;
+    }
   };
 
   // Круглая кнопка
@@ -105,6 +133,7 @@
   };
 
   UI.releaseAll = function () {
+    for (const p of UI.pointers.values()) if (p.drag) p.drag.dragging = false;
     UI.pointers.clear();
     UI.keys = Object.create(null);
     UI.edges.clear();
@@ -140,6 +169,30 @@
     }
     if (p.btn) {
       const b = byId(p.btn);
+      // палец тянет список — это прокрутка, а не нажатие
+      if (!p.drag && b && b.scroll) {
+        const d = b.scroll.axis === 'x' ? x - p.sx : y - p.sy;
+        if (Math.abs(d) > 10) {
+          p.drag = b.scroll;
+          p.inside = false;
+          p.last = b.scroll.axis === 'x' ? x : y;
+          p.lastT = performance.now();
+          p.drag.dragging = true;
+          p.drag.target = null;
+          p.drag.vel = 0;
+        }
+      }
+      if (p.drag) {
+        const cur = p.drag.axis === 'x' ? x : y;
+        const now = performance.now();
+        const dd = cur - p.last;
+        const dts = Math.max(0.008, (now - p.lastT) / 1000);
+        p.drag.pos -= dd;
+        p.drag.vel = (p.drag.vel || 0) * 0.5 + (-dd / dts) * 0.5;
+        p.last = cur;
+        p.lastT = now;
+        return;
+      }
       p.inside = !!b && inside(b, x, y, 14);
     }
   }
@@ -148,6 +201,11 @@
     const p = UI.pointers.get(pid);
     if (!p) return;
     UI.pointers.delete(pid);
+    if (p.drag) {
+      p.drag.dragging = false;
+      if (performance.now() - p.lastT > 120) p.drag.vel = 0;
+      return;
+    }
     if (UI.locked) return;
     if (p.btn) {
       const b = byId(p.btn);
@@ -156,6 +214,8 @@
   }
 
   function cancel(pid) {
+    const p = UI.pointers.get(pid);
+    if (p && p.drag) p.drag.dragging = false;
     UI.pointers.delete(pid);
   }
 
